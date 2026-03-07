@@ -1,16 +1,59 @@
 """Auth middleware — JWT verification and current user dependency."""
 import logging
-from typing import Optional
+from typing import Callable, Optional
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
+from supabase import Client
 
-from models.user import UserProfile
+from config.settings import settings
+from models.user import TokenData, UserProfile
 from services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
 
 _bearer = HTTPBearer(auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+
+def get_supabase_client() -> Client:
+    """FastAPI dependency that returns the Supabase service client."""
+    return supabase_service.client
+
+
+async def verify_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> TokenData:
+    """Extract and verify the Supabase JWT from the Authorization header.
+
+    Returns TokenData with user_id and role, or raises 401.
+    """
+    if not credentials or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Provide a valid Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = credentials.credentials
+    user = await supabase_service.verify_token(token)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        return TokenData(user_id=UUID(user.id), role=user.role)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token data.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 async def get_current_user(
@@ -40,14 +83,64 @@ async def get_current_user(
     return user
 
 
-async def require_role(
-    required_roles: list[str],
+def require_role(*roles: str) -> Callable:
+    """Return a FastAPI dependency that raises 403 if the user's role is not in *roles*.
+
+    Usage::
+
+        @router.get("/admin-only")
+        async def admin_only(user = Depends(require_role("admin"))):
+            ...
+
+        @router.get("/multi-role")
+        async def multi(user = Depends(require_role("admin", "specialist"))):
+            ...
+    """
+
+    async def _dependency(
+        current_user: UserProfile = Depends(get_current_user),
+    ) -> UserProfile:
+        if current_user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied. Required role(s): {', '.join(roles)}",
+            )
+        return current_user
+
+    return _dependency
+
+
+async def get_current_clinic(
     current_user: UserProfile = Depends(get_current_user),
 ) -> UserProfile:
-    """Raise 403 if the current user's role is not in required_roles."""
-    if current_user.role not in required_roles:
+    """Dependency that allows only 'clinic' role users."""
+    if current_user.role != "clinic":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access denied. Required role(s): {', '.join(required_roles)}",
+            detail="Access denied. This endpoint requires the 'clinic' role.",
+        )
+    return current_user
+
+
+async def get_current_specialist(
+    current_user: UserProfile = Depends(get_current_user),
+) -> UserProfile:
+    """Dependency that allows only 'specialist' role users."""
+    if current_user.role != "specialist":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. This endpoint requires the 'specialist' role.",
+        )
+    return current_user
+
+
+async def get_current_admin(
+    current_user: UserProfile = Depends(get_current_user),
+) -> UserProfile:
+    """Dependency that allows only 'admin' role users."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. This endpoint requires the 'admin' role.",
         )
     return current_user

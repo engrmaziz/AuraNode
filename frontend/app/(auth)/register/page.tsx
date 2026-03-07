@@ -14,7 +14,7 @@ const registerSchema = z
     full_name: z.string().min(2, "Full name must be at least 2 characters"),
     email: z.string().email("Please enter a valid email address"),
     organization: z.string().optional(),
-    role: z.enum(["clinic", "specialist", "admin"] as const, {
+    role: z.enum(["clinic", "specialist"] as const, {
       required_error: "Please select an account type",
     }),
     password: z
@@ -31,10 +31,9 @@ const registerSchema = z
 
 type RegisterFormData = z.infer<typeof registerSchema>;
 
-const roleDescriptions: Record<UserRole, string> = {
+const roleDescriptions: Record<"clinic" | "specialist", string> = {
   clinic: "Upload and manage diagnostic cases",
   specialist: "Review flagged cases assigned to you",
-  admin: "Full platform access and management",
 };
 
 export default function RegisterPage() {
@@ -103,167 +102,165 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center aura-gradient p-4">
-      <div className="w-full max-w-lg">
-        {/* Logo */}
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="text-3xl">🩺</span>
-            <span className="text-2xl font-extrabold text-white">AuraNode</span>
-          </Link>
-          <p className="mt-2 text-blue-200 text-sm">AI-Powered Diagnostic Intelligence</p>
-        </div>
-
-        {/* Card */}
-        <div className="rounded-2xl bg-white/10 backdrop-blur border border-white/20 p-8 shadow-2xl">
-          <h1 className="mb-1 text-2xl font-bold text-white">Create your account</h1>
-          <p className="mb-6 text-sm text-blue-200">
-            Get started with AuraNode for free
-          </p>
-
-          {serverError && (
-            <div className="mb-4 rounded-lg bg-red-500/20 border border-red-400/30 px-4 py-3 text-sm text-red-200">
-              {serverError}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {/* Account Type */}
-            <div>
-              <label className="block text-sm font-medium text-blue-100 mb-2">
-                Account type
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(["clinic", "specialist", "admin"] as UserRole[]).map((role) => (
-                  <label
-                    key={role}
-                    className={`relative flex cursor-pointer flex-col rounded-lg border p-3 transition-colors ${
-                      selectedRole === role
-                        ? "border-cyan-400 bg-cyan-500/20 text-white"
-                        : "border-white/20 bg-white/5 text-blue-200 hover:border-white/40"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      value={role}
-                      className="sr-only"
-                      {...register("role")}
-                    />
-                    <span className="text-xs font-semibold capitalize">{role}</span>
-                    <span className="mt-0.5 text-xs opacity-75">{roleDescriptions[role]}</span>
-                  </label>
-                ))}
-              </div>
-              {errors.role && (
-                <p className="mt-1 text-xs text-red-300">{errors.role.message}</p>
-              )}
-            </div>
-
-            {/* Full Name */}
-            <div>
-              <label htmlFor="full_name" className="block text-sm font-medium text-blue-100 mb-1.5">
-                Full name
-              </label>
-              <input
-                id="full_name"
-                type="text"
-                autoComplete="name"
-                placeholder="Dr. Jane Smith"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3.5 py-2.5 text-white placeholder:text-blue-300/60 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 text-sm"
-                {...register("full_name")}
-              />
-              {errors.full_name && (
-                <p className="mt-1 text-xs text-red-300">{errors.full_name.message}</p>
-              )}
-            </div>
-
-            {/* Email */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-blue-100 mb-1.5">
-                Email address
-              </label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@clinic.com"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3.5 py-2.5 text-white placeholder:text-blue-300/60 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 text-sm"
-                {...register("email")}
-              />
-              {errors.email && (
-                <p className="mt-1 text-xs text-red-300">{errors.email.message}</p>
-              )}
-            </div>
-
-            {/* Organization (optional) */}
-            <div>
-              <label htmlFor="organization" className="block text-sm font-medium text-blue-100 mb-1.5">
-                Organization{" "}
-                <span className="text-blue-300/60 text-xs font-normal">(optional)</span>
-              </label>
-              <input
-                id="organization"
-                type="text"
-                autoComplete="organization"
-                placeholder="City General Hospital"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3.5 py-2.5 text-white placeholder:text-blue-300/60 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 text-sm"
-                {...register("organization")}
-              />
-            </div>
-
-            {/* Password */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-blue-100 mb-1.5">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                placeholder="Min. 8 chars, 1 uppercase, 1 number"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3.5 py-2.5 text-white placeholder:text-blue-300/60 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 text-sm"
-                {...register("password")}
-              />
-              {errors.password && (
-                <p className="mt-1 text-xs text-red-300">{errors.password.message}</p>
-              )}
-            </div>
-
-            {/* Confirm Password */}
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-blue-100 mb-1.5">
-                Confirm password
-              </label>
-              <input
-                id="confirmPassword"
-                type="password"
-                autoComplete="new-password"
-                placeholder="••••••••"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3.5 py-2.5 text-white placeholder:text-blue-300/60 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400 text-sm"
-                {...register("confirmPassword")}
-              />
-              {errors.confirmPassword && (
-                <p className="mt-1 text-xs text-red-300">{errors.confirmPassword.message}</p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow hover:bg-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-offset-2 focus:ring-offset-blue-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors mt-2"
-            >
-              {isLoading ? "Creating account…" : "Create account"}
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-blue-200">
-            Already have an account?{" "}
-            <Link href="/login" className="font-semibold text-cyan-300 hover:text-cyan-200">
-              Sign in
-            </Link>
-          </p>
-        </div>
+    <div className="space-y-6">
+      {/* Logo — shown on mobile */}
+      <div className="text-center lg:hidden mb-2">
+        <Link href="/" className="inline-flex items-center gap-2">
+          <span className="text-3xl">🩺</span>
+          <span className="text-2xl font-extrabold">AuraNode</span>
+        </Link>
+        <p className="mt-1 text-muted-foreground text-sm">AI-Powered Diagnostic Intelligence</p>
       </div>
+
+      <div>
+        <h1 className="text-2xl font-bold">Create your account</h1>
+        <p className="text-muted-foreground text-sm mt-1">Get started with AuraNode for free</p>
+      </div>
+
+      {serverError && (
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">
+          {serverError}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {/* Account Type */}
+        <div>
+          <label className="block text-sm font-medium mb-2">Account type</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(["clinic", "specialist"] as UserRole[]).map((role) => (
+              <label
+                key={role}
+                className={`relative flex cursor-pointer flex-col rounded-lg border p-3 transition-colors ${
+                  selectedRole === role
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-input bg-background text-muted-foreground hover:border-primary/50"
+                }`}
+              >
+                <input type="radio" value={role} className="sr-only" {...register("role")} />
+                <span className="text-xs font-semibold capitalize">{role}</span>
+                <span className="mt-0.5 text-xs opacity-75">{roleDescriptions[role]}</span>
+              </label>
+            ))}
+          </div>
+          {errors.role && (
+            <p className="mt-1 text-xs text-destructive">{errors.role.message}</p>
+          )}
+        </div>
+
+        {/* Full Name */}
+        <div>
+          <label htmlFor="full_name" className="block text-sm font-medium mb-1.5">
+            Full name
+          </label>
+          <input
+            id="full_name"
+            type="text"
+            autoComplete="name"
+            placeholder="Dr. Jane Smith"
+            className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            {...register("full_name")}
+          />
+          {errors.full_name && (
+            <p className="mt-1 text-xs text-destructive">{errors.full_name.message}</p>
+          )}
+        </div>
+
+        {/* Email */}
+        <div>
+          <label htmlFor="email" className="block text-sm font-medium mb-1.5">
+            Email address
+          </label>
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@clinic.com"
+            className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            {...register("email")}
+          />
+          {errors.email && (
+            <p className="mt-1 text-xs text-destructive">{errors.email.message}</p>
+          )}
+        </div>
+
+        {/* Organization (optional) */}
+        <div>
+          <label htmlFor="organization" className="block text-sm font-medium mb-1.5">
+            Organization{" "}
+            <span className="text-muted-foreground text-xs font-normal">(optional)</span>
+          </label>
+          <input
+            id="organization"
+            type="text"
+            autoComplete="organization"
+            placeholder="City General Hospital"
+            className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            {...register("organization")}
+          />
+        </div>
+
+        {/* Password */}
+        <div>
+          <label htmlFor="password" className="block text-sm font-medium mb-1.5">
+            Password
+          </label>
+          <input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            placeholder="Min. 8 chars, 1 uppercase, 1 number"
+            className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            {...register("password")}
+          />
+          {errors.password && (
+            <p className="mt-1 text-xs text-destructive">{errors.password.message}</p>
+          )}
+        </div>
+
+        {/* Confirm Password */}
+        <div>
+          <label htmlFor="confirmPassword" className="block text-sm font-medium mb-1.5">
+            Confirm password
+          </label>
+          <input
+            id="confirmPassword"
+            type="password"
+            autoComplete="new-password"
+            placeholder="••••••••"
+            className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            {...register("confirmPassword")}
+          />
+          {errors.confirmPassword && (
+            <p className="mt-1 text-xs text-destructive">{errors.confirmPassword.message}</p>
+          )}
+        </div>
+
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors mt-2"
+        >
+          {isLoading ? (
+            <span className="inline-flex items-center gap-2">
+              <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Creating account…
+            </span>
+          ) : (
+            "Create account"
+          )}
+        </button>
+      </form>
+
+      <p className="text-center text-sm text-muted-foreground">
+        Already have an account?{" "}
+        <Link href="/login" className="font-semibold text-primary hover:underline">
+          Sign in
+        </Link>
+      </p>
     </div>
   );
 }
