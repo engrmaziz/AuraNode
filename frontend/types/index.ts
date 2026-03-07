@@ -4,7 +4,7 @@
 
 export type UserRole = "clinic" | "specialist" | "admin";
 
-export type CaseStatus = "uploaded" | "processing" | "flagged" | "under_review" | "completed";
+export type CaseStatus = "uploaded" | "processing" | "flagged" | "under_review" | "completed" | "deleted";
 
 export type CasePriority = "low" | "normal" | "high" | "critical";
 

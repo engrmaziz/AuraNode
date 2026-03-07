@@ -7,7 +7,7 @@ from supabase import Client, create_client
 
 from config.settings import settings
 from models.analysis import AnalysisResultResponse
-from models.case import CaseCreate, CaseFileResponse, CaseResponse, CaseUpdate
+from models.case import CaseCreate, CaseFileResponse, CaseResponse, CaseUpdate, PaginatedCases
 from models.report import ReportResponse
 from models.review import ReviewCreate, ReviewResponse
 from models.user import LoginResponse, UserProfile
@@ -230,6 +230,7 @@ class SupabaseService:
         page: int = 1,
         per_page: int = 20,
         status_filter: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> List[CaseResponse]:
         """Return cases filtered by user role."""
         query = self.client.table("cases").select("*")
@@ -243,11 +244,60 @@ class SupabaseService:
         if status_filter:
             query = query.eq("status", status_filter)
 
+        if search:
+            query = query.ilike("title", f"%{search}%")
+
         offset = (page - 1) * per_page
         query = query.order("created_at", desc=True).range(offset, offset + per_page - 1)
 
         resp = query.execute()
         return [self._row_to_case(row) for row in (resp.data or [])]
+
+    async def list_cases_paginated(
+        self,
+        *,
+        user_id: str,
+        role: str,
+        page: int = 1,
+        per_page: int = 20,
+        status_filter: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> PaginatedCases:
+        """Return paginated cases with metadata, filtered by user role."""
+        # Build both queries independently to avoid Supabase builder mutation issues
+        count_q = self.client.table("cases").select("id", count="exact")
+        rows_q = self.client.table("cases").select("*")
+
+        if role == "clinic":
+            count_q = count_q.eq("clinic_id", user_id)
+            rows_q = rows_q.eq("clinic_id", user_id)
+        elif role == "specialist":
+            count_q = count_q.eq("assigned_specialist_id", user_id)
+            rows_q = rows_q.eq("assigned_specialist_id", user_id)
+        # admin sees all cases
+
+        if status_filter:
+            count_q = count_q.eq("status", status_filter)
+            rows_q = rows_q.eq("status", status_filter)
+
+        if search:
+            count_q = count_q.ilike("title", f"%{search}%")
+            rows_q = rows_q.ilike("title", f"%{search}%")
+
+        count_resp = count_q.execute()
+        total = count_resp.count or 0
+
+        offset = (page - 1) * per_page
+        rows_resp = rows_q.order("created_at", desc=True).range(offset, offset + per_page - 1).execute()
+        cases = [self._row_to_case(row) for row in (rows_resp.data or [])]
+
+        return PaginatedCases(
+            cases=cases,
+            total=total,
+            page=page,
+            per_page=per_page,
+            has_next=(offset + per_page) < total,
+        )
 
     async def create_case(self, *, clinic_id: str, payload: CaseCreate) -> CaseResponse:
         """Insert a new case record."""
@@ -313,21 +363,22 @@ class SupabaseService:
         self.client.table("cases").update({"status": new_status}).eq("id", case_id).execute()
 
     async def delete_case(self, *, case_id: str) -> None:
-        """Delete a case (cascades to related records via FK)."""
-        self.client.table("cases").delete().eq("id", case_id).execute()
+        """Soft-delete a case by setting its status to 'deleted'."""
+        self.client.table("cases").update({"status": "deleted"}).eq("id", case_id).execute()
 
     # ─── Files ────────────────────────────────────────────
 
     async def upload_file(
         self,
         *,
+        clinic_id: str,
         case_id: str,
         file_name: str,
         content_type: str,
         contents: bytes,
     ) -> CaseFileResponse:
         """Upload file to Supabase Storage and create case_files record."""
-        storage_path = f"{case_id}/{uuid.uuid4()}/{file_name}"
+        storage_path = f"{clinic_id}/{case_id}/{uuid.uuid4()}/{file_name}"
         self.client.storage.from_(settings.uploads_bucket).upload(
             path=storage_path,
             file=contents,
@@ -351,6 +402,41 @@ class SupabaseService:
             .execute()
         )
         return self._row_to_case_file(resp.data[0])
+
+    async def get_case_file(self, *, file_id: str, case_id: str) -> Optional[CaseFileResponse]:
+        """Fetch a single case_files record, verifying it belongs to the given case."""
+        resp = (
+            self.client.table("case_files")
+            .select("*")
+            .eq("id", file_id)
+            .eq("case_id", case_id)
+            .single()
+            .execute()
+        )
+        if not resp.data:
+            return None
+        return self._row_to_case_file(resp.data)
+
+    async def delete_case_file(self, *, file_id: str, case_id: str) -> None:
+        """Delete a file from Supabase Storage and remove the case_files record."""
+        file_record = await self.get_case_file(file_id=file_id, case_id=case_id)
+        if not file_record:
+            return
+
+        try:
+            self.client.storage.from_(settings.uploads_bucket).remove([file_record.storage_path])
+        except Exception as exc:
+            logger.warning("Storage deletion failed for %s: %s", file_record.storage_path, exc)
+
+        self.client.table("case_files").delete().eq("id", file_id).execute()
+
+    async def get_signed_url(self, *, storage_path: str, expires_in: int = 3600) -> str:
+        """Generate a signed download URL for a file in Supabase Storage."""
+        result = self.client.storage.from_(settings.uploads_bucket).create_signed_url(
+            storage_path, expires_in
+        )
+        signed_url: str = result.get("signedURL") or result.get("signedUrl") or result.get("signed_url", "")
+        return signed_url
 
     async def list_case_files(self, *, case_id: str) -> List[CaseFileResponse]:
         resp = (

@@ -1,10 +1,10 @@
 """Case Pydantic models."""
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 
-CaseStatus = Literal["uploaded", "processing", "flagged", "under_review", "completed"]
+CaseStatus = Literal["uploaded", "processing", "flagged", "under_review", "completed", "deleted"]
 CasePriority = Literal["low", "normal", "high", "critical"]
 
 
@@ -18,11 +18,12 @@ class CaseCreate(BaseModel):
 
 
 class CaseUpdate(BaseModel):
-    """Payload for PATCH /cases/{case_id}."""
+    """Payload for PUT /cases/{case_id}."""
 
     title: Optional[str] = Field(default=None, min_length=1, max_length=300)
     description: Optional[str] = Field(default=None, max_length=2000)
     patient_reference: Optional[str] = Field(default=None, max_length=100)
+    status: Optional[CaseStatus] = None
     priority: Optional[CasePriority] = None
     assigned_specialist_id: Optional[str] = None
 
@@ -57,3 +58,19 @@ class CaseFileResponse(BaseModel):
     uploaded_at: str
 
     model_config = {"from_attributes": True}
+
+
+class CaseWithFiles(CaseResponse):
+    """Case resource including its file attachments."""
+
+    files: List[CaseFileResponse] = []
+
+
+class PaginatedCases(BaseModel):
+    """Paginated list of cases."""
+
+    cases: List[CaseResponse]
+    total: int
+    page: int
+    per_page: int
+    has_next: bool
