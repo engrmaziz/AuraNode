@@ -128,7 +128,99 @@ class SupabaseService:
         except Exception:
             return None
 
-    # ─── Cases ────────────────────────────────────────────
+    async def update_user(self, *, user_id: str, data: dict) -> UserProfile:
+        """Update user profile fields and return the updated record."""
+        resp = (
+            self.client.table("users")
+            .update(data)
+            .eq("id", user_id)
+            .execute()
+        )
+        if not resp.data:
+            raise ValueError(f"User {user_id} not found or update failed.")
+        d = resp.data[0]
+        return UserProfile(
+            id=d["id"],
+            email=d["email"],
+            role=d["role"],
+            full_name=d.get("full_name"),
+            organization=d.get("organization"),
+            created_at=d["created_at"],
+            updated_at=d["updated_at"],
+        )
+
+    async def get_user_by_id(self, *, user_id: str) -> Optional[UserProfile]:
+        """Fetch public user profile by ID (alias for get_user_profile)."""
+        return await self.get_user_profile(user_id=user_id)
+
+    async def get_user_by_email(self, *, email: str) -> Optional[UserProfile]:
+        """Fetch public user profile by email address."""
+        resp = (
+            self.client.table("users")
+            .select("*")
+            .eq("email", email)
+            .single()
+            .execute()
+        )
+        if not resp.data:
+            return None
+        d = resp.data
+        return UserProfile(
+            id=d["id"],
+            email=d["email"],
+            role=d["role"],
+            full_name=d.get("full_name"),
+            organization=d.get("organization"),
+            created_at=d["created_at"],
+            updated_at=d["updated_at"],
+        )
+
+    async def refresh_session(self, *, refresh_token: str) -> LoginResponse:
+        """Refresh a Supabase session using a refresh token."""
+        resp = self.client.auth.refresh_session(refresh_token)
+        if not resp.session or not resp.user:
+            raise ValueError("Invalid or expired refresh token.")
+
+        profile = await self.get_user_profile(user_id=resp.user.id)
+        if not profile:
+            raise ValueError("User profile not found.")
+
+        return LoginResponse(
+            access_token=resp.session.access_token,
+            refresh_token=resp.session.refresh_token,
+            expires_in=resp.session.expires_in or 3600,
+            user=profile,
+        )
+
+    async def send_password_reset(self, *, email: str) -> None:
+        """Trigger a Supabase password reset email."""
+        self.client.auth.reset_password_email(email)
+
+    async def log_audit(
+        self,
+        *,
+        user_id: Optional[str],
+        action: str,
+        resource_type: str,
+        resource_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        ip_address: Optional[str] = None,
+    ) -> None:
+        """Insert an audit log entry."""
+        try:
+            self.client.table("audit_logs").insert(
+                {
+                    "user_id": user_id,
+                    "action": action,
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "metadata": metadata,
+                    "ip_address": ip_address,
+                }
+            ).execute()
+        except Exception as exc:
+            logger.warning("Audit log insertion failed: %s", exc)
+
 
     async def list_cases(
         self,
