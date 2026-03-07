@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 from uuid import UUID
 
+from services.ocr_service import _MIN_CONFIDENCE
+
 logger = logging.getLogger(__name__)
 
 
@@ -155,7 +157,7 @@ class ProcessingQueue:
 
             result = await supabase_service.get_analysis_result(case_id=case_str)
             if result:
-                if result.confidence_score is not None and result.confidence_score < 0.3:
+                if result.confidence_score is not None and result.confidence_score < _MIN_CONFIDENCE:
                     return {
                         "status": "failed",
                         "progress": 0,

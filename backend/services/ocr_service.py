@@ -34,6 +34,7 @@ _OCR_TIMEOUT_SECONDS = 60
 _MAX_RETRIES = 3
 _RETRY_BACKOFF_SECONDS = 5
 _MIN_IMAGE_DIM = 300  # minimum pixels (approx 300 DPI equivalent)
+_MIN_CONFIDENCE = 0.3  # below this threshold OCR result is considered unreliable
 TESSERACT_CONFIG = "--psm 3 --oem 3"
 MODEL_VERSION = "ocr-v1.0.0"
 
@@ -239,7 +240,7 @@ class OCRService:
             # ── Persist result based on confidence ───────────────
             confidence = result["confidence_score"]
 
-            if confidence < 0.3:
+            if confidence < _MIN_CONFIDENCE:
                 await supabase_service.update_analysis_result(
                     analysis_id=analysis_id,
                     extracted_text=result.get("extracted_text", ""),

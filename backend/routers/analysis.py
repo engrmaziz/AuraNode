@@ -1,6 +1,8 @@
 """Analysis router — trigger OCR + AI analysis, retrieve results."""
 import logging
 import time
+import uuid as _uuid
+from datetime import datetime, timezone
 from typing import List
 from uuid import UUID
 
@@ -86,9 +88,6 @@ async def reprocess_case(
         )
 
     await supabase_service.update_case_status(case_id=str(case_id), new_status="processing")
-
-    from datetime import datetime, timezone  # noqa: PLC0415
-    import uuid as _uuid  # noqa: PLC0415
 
     for f in files:
         await processing_queue.enqueue(
