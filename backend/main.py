@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 
 from config.settings import settings
 from routers import analysis, auth, cases, reports, reviews, uploads
+from services.processing_queue import processing_queue
 
 # ─── Logging ────────────────────────────────────────────────
 logging.basicConfig(
@@ -48,8 +49,10 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     logger.info("   Environment : %s", settings.environment)
     logger.info("   CORS origins: %s", settings.allowed_origins_list)
     logger.info("   Max upload  : %d MB", settings.max_file_size_mb)
+    await processing_queue.start_workers()
     yield
     logger.info("🛑 %s shutting down", settings.app_name)
+    await processing_queue.stop_workers()
 
 
 # ─── Application ────────────────────────────────────────────

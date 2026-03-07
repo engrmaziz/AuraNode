@@ -468,27 +468,31 @@ class SupabaseService:
         self,
         *,
         analysis_id: str,
-        extracted_text: str,
-        confidence_score: float,
-        risk_score: float,
-        flagged_status: bool,
-        ai_findings: dict,
-        processing_time_ms: int,
-        file_id: Optional[str],
+        extracted_text: Optional[str] = None,
+        confidence_score: Optional[float] = None,
+        risk_score: Optional[float] = None,
+        flagged_status: Optional[bool] = None,
+        ai_findings: Optional[dict] = None,
+        processing_time_ms: Optional[int] = None,
+        file_id: Optional[str] = None,
         model_version: str = "1.0.0",
     ) -> None:
-        self.client.table("analysis_results").update(
-            {
-                "extracted_text": extracted_text,
-                "confidence_score": confidence_score,
-                "risk_score": risk_score,
-                "flagged_status": flagged_status,
-                "ai_findings": ai_findings,
-                "processing_time_ms": processing_time_ms,
-                "file_id": file_id,
-                "model_version": model_version,
-            }
-        ).eq("id", analysis_id).execute()
+        update_data: dict = {"model_version": model_version}
+        if extracted_text is not None:
+            update_data["extracted_text"] = extracted_text
+        if confidence_score is not None:
+            update_data["confidence_score"] = confidence_score
+        if risk_score is not None:
+            update_data["risk_score"] = risk_score
+        if flagged_status is not None:
+            update_data["flagged_status"] = flagged_status
+        if ai_findings is not None:
+            update_data["ai_findings"] = ai_findings
+        if processing_time_ms is not None:
+            update_data["processing_time_ms"] = processing_time_ms
+        if file_id is not None:
+            update_data["file_id"] = file_id
+        self.client.table("analysis_results").update(update_data).eq("id", analysis_id).execute()
 
     async def get_analysis_result(self, *, case_id: str) -> Optional[AnalysisResultResponse]:
         resp = (
@@ -502,6 +506,17 @@ class SupabaseService:
         if not resp.data:
             return None
         return self._row_to_analysis(resp.data[0])
+
+    async def list_analysis_results(self, *, case_id: str) -> list:
+        """Return all analysis results for a case, newest first."""
+        resp = (
+            self.client.table("analysis_results")
+            .select("*")
+            .eq("case_id", case_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return [self._row_to_analysis(row) for row in (resp.data or [])]
 
     # ─── Reviews ──────────────────────────────────────────
 

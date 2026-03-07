@@ -1,14 +1,16 @@
 """Uploads router — file upload to Supabase Storage."""
 import logging
+import uuid as _uuid
+from datetime import datetime, timezone
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from middleware.auth_middleware import get_current_clinic, get_current_user
 from models.case import CaseCreate, CaseFileResponse, CaseWithFiles
 from models.user import UserProfile
-from services.ocr_service import ocr_service
+from services.processing_queue import processing_queue
 from services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
@@ -70,7 +72,6 @@ async def _validate_and_read_files(files: List[UploadFile]) -> List[tuple]:
 
 @router.post("/case", response_model=CaseWithFiles, status_code=status.HTTP_201_CREATED)
 async def upload_case(
-    background_tasks: BackgroundTasks,
     title: str = Form(..., min_length=3, max_length=300),
     description: str = Form(default=None),
     patient_reference: str = Form(default=None),
@@ -164,12 +165,19 @@ async def upload_case(
         metadata={"file_count": len(uploaded_files), "priority": priority},
     )
 
-    # Trigger background OCR
-    background_tasks.add_task(
-        ocr_service.process_async,
-        case.id,
-        [f.id for f in uploaded_files],
-    )
+    # Enqueue OCR processing for each uploaded file
+    for f in uploaded_files:
+        await processing_queue.enqueue(
+            {
+                "task_id": str(_uuid.uuid4()),
+                "case_id": case.id,
+                "file_id": f.id,
+                "file_url": f.file_url,
+                "file_type": f.file_type,
+                "priority": priority,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     # Build and return CaseWithFiles
     case_data = case.model_dump()

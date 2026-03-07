@@ -1,20 +1,141 @@
 """Analysis router — trigger OCR + AI analysis, retrieve results."""
 import logging
 import time
+import uuid as _uuid
+from datetime import datetime, timezone
+from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 
-from middleware.auth_middleware import get_current_user
-from models.analysis import AnalysisResultResponse
+from middleware.auth_middleware import get_current_user, require_role
+from models.analysis import AnalysisResultResponse, OCRStatus
 from models.user import UserProfile
 from services.ai_analysis_service import ai_analysis_service
 from services.ocr_service import ocr_service
+from services.processing_queue import processing_queue
 from services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+# ─── New REST endpoints ─────────────────────────────────────
+
+@router.get("/case/{case_id}", response_model=List[AnalysisResultResponse])
+async def get_case_analysis_results(
+    case_id: UUID,
+    current_user: UserProfile = Depends(get_current_user),
+) -> List[AnalysisResultResponse]:
+    """Return all analysis results for a case (newest first).
+
+    Access: clinic (owner), specialist (assigned), admin (all).
+    """
+    case = await supabase_service.get_case(
+        case_id=str(case_id), user_id=current_user.id, role=current_user.role
+    )
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+
+    return await supabase_service.list_analysis_results(case_id=str(case_id))
+
+
+@router.get("/case/{case_id}/status", response_model=OCRStatus)
+async def get_ocr_status(
+    case_id: UUID,
+    current_user: UserProfile = Depends(get_current_user),
+) -> OCRStatus:
+    """Return the current OCR processing status for a case.
+
+    Polls the in-memory queue status; falls back to the database.
+    Used for frontend polling every 3 seconds.
+    """
+    case = await supabase_service.get_case(
+        case_id=str(case_id), user_id=current_user.id, role=current_user.role
+    )
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+
+    status_dict = await processing_queue.get_status(case_id)
+    return OCRStatus(
+        case_id=case_id,
+        status=status_dict.get("status", "queued"),
+        progress=status_dict.get("progress", 0),
+        message=status_dict.get("message", "Waiting in queue…"),
+    )
+
+
+@router.post("/case/{case_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
+async def reprocess_case(
+    case_id: UUID,
+    current_user: UserProfile = Depends(require_role("admin")),
+) -> dict:
+    """Re-queue all files for a case for OCR reprocessing.
+
+    Access: admin only.
+    """
+    case = await supabase_service.get_case(
+        case_id=str(case_id), user_id=current_user.id, role=current_user.role
+    )
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+
+    files = await supabase_service.list_case_files(case_id=str(case_id))
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No files found for this case.",
+        )
+
+    await supabase_service.update_case_status(case_id=str(case_id), new_status="processing")
+
+    for f in files:
+        await processing_queue.enqueue(
+            {
+                "task_id": str(_uuid.uuid4()),
+                "case_id": str(case_id),
+                "file_id": f.id,
+                "file_url": f.file_url,
+                "file_type": f.file_type,
+                "priority": "normal",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    await supabase_service.log_audit(
+        user_id=current_user.id,
+        action="case_reprocessed",
+        resource_type="case",
+        resource_id=str(case_id),
+        metadata={"file_count": len(files), "triggered_by": current_user.id},
+    )
+
+    return {"message": f"Reprocessing queued for {len(files)} file(s).", "case_id": str(case_id)}
+
+
+@router.get("/case/{case_id}/text")
+async def get_extracted_text(
+    case_id: UUID,
+    current_user: UserProfile = Depends(get_current_user),
+) -> Response:
+    """Return the OCR-extracted text for a case as plain text."""
+    case = await supabase_service.get_case(
+        case_id=str(case_id), user_id=current_user.id, role=current_user.role
+    )
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+
+    result = await supabase_service.get_analysis_result(case_id=str(case_id))
+    if not result or not result.extracted_text:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No extracted text found for this case.",
+        )
+
+    return Response(content=result.extracted_text, media_type="text/plain")
+
+
+# ─── Legacy endpoints (preserved for backward compatibility) ──
 
 @router.post("/{case_id}", response_model=AnalysisResultResponse, status_code=status.HTTP_202_ACCEPTED)
 async def trigger_analysis(

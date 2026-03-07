@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useCallback } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -10,11 +10,15 @@ import {
   AlertCircle,
   Calendar,
   User,
+  RefreshCw,
 } from "lucide-react";
 import { StatusBadge } from "@/components/cases/StatusBadge";
+import { OCRStatus } from "@/components/analysis/OCRStatus";
+import { ExtractedTextViewer } from "@/components/analysis/ExtractedTextViewer";
 import { useCase } from "@/hooks/useCases";
-import { get } from "@/lib/api-client";
-import type { CaseStatus } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
+import { get, post } from "@/lib/api-client";
+import type { AnalysisResult, CaseStatus } from "@/types";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -40,6 +44,7 @@ const TIMELINE_STEPS: { status: CaseStatus; label: string }[] = [
 const STATUS_ORDER: Record<string, number> = {
   uploaded: 0,
   processing: 1,
+  processing_failed: 1,
   flagged: 2,
   under_review: 3,
   completed: 4,
@@ -99,6 +104,101 @@ function StatusTimeline({ currentStatus }: { currentStatus: string }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Analysis tab content ─────────────────────────────────────
+
+function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: string }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+  const [reprocessing, setReprocessing] = useState(false);
+
+  const fetchAnalysis = useCallback(async () => {
+    setLoadingAnalysis(true);
+    try {
+      const results = await get<AnalysisResult[]>(`/api/v1/analysis/case/${caseId}`);
+      if (results.length > 0) {
+        setAnalysis(results[0]);
+      }
+    } catch {
+      // no results yet
+    } finally {
+      setLoadingAnalysis(false);
+    }
+  }, [caseId]);
+
+  const handleReprocess = async () => {
+    setReprocessing(true);
+    try {
+      await post(`/api/v1/analysis/case/${caseId}/reprocess`);
+      setAnalysis(null);
+    } catch {
+      // ignore
+    } finally {
+      setReprocessing(false);
+    }
+  };
+
+  const isProcessing =
+    caseStatus === "processing" || caseStatus === "uploaded";
+  const ocrComplete = !!(analysis?.extracted_text);
+
+  return (
+    <div className="space-y-5">
+      {/* OCR status — show when processing or no result yet */}
+      {(isProcessing || (!ocrComplete && !loadingAnalysis)) && (
+        <OCRStatus caseId={caseId} onComplete={fetchAnalysis} />
+      )}
+
+      {/* Extracted text — show when complete */}
+      {ocrComplete && analysis && (
+        <>
+          <ExtractedTextViewer
+            text={analysis.extracted_text!}
+            confidence={analysis.confidence_score ?? 0}
+          />
+
+          {/* Meta row */}
+          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+            {analysis.processing_time_ms != null && (
+              <span>Processing time: {analysis.processing_time_ms} ms</span>
+            )}
+            {analysis.model_version && (
+              <span>Model: {analysis.model_version}</span>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Loading state */}
+      {loadingAnalysis && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading analysis…
+        </div>
+      )}
+
+      {/* Re-process button (admin only) */}
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={handleReprocess}
+          disabled={reprocessing}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-60 transition-colors"
+        >
+          {reprocessing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          Re-process
+        </button>
+      )}
     </div>
   );
 }
@@ -312,12 +412,12 @@ export default function CaseDetailPage({
             </>
           )}
 
-          {/* Other tabs — placeholder */}
+          {/* Analysis tab */}
           {activeTab === "analysis" && (
-            <div className="py-16 text-center text-muted-foreground">
-              <p className="font-medium">Analysis results will appear here once processing is complete.</p>
-            </div>
+            <AnalysisTab caseId={id} caseStatus={caseData.status} />
           )}
+
+          {/* Other tabs — placeholder */}
           {activeTab === "review" && (
             <div className="py-16 text-center text-muted-foreground">
               <p className="font-medium">Specialist review details will appear here.</p>

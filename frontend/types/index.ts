@@ -4,7 +4,7 @@
 
 export type UserRole = "clinic" | "specialist" | "admin";
 
-export type CaseStatus = "uploaded" | "processing" | "flagged" | "under_review" | "completed" | "deleted";
+export type CaseStatus = "uploaded" | "processing" | "processing_failed" | "flagged" | "under_review" | "completed" | "deleted";
 
 export type CasePriority = "low" | "normal" | "high" | "critical";
 
@@ -63,6 +63,13 @@ export interface AnalysisResult {
   processing_time_ms: number | null;
   model_version: string | null;
   created_at: string;
+}
+
+export interface OCRStatus {
+  case_id: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  progress: number;
+  message: string;
 }
 
 export interface AIFindings {
