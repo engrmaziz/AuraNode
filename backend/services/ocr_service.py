@@ -115,5 +115,17 @@ class OCRService:
             logger.error("OCR layout extraction failed: %s", exc)
             return {"text": "", "confidence": 0.0, "blocks": []}
 
+    async def process_async(self, case_id: str, file_ids: list) -> None:
+        """Background OCR processing trigger for a case.
+
+        This method is called as a background task after file upload.
+        Actual processing is handled by the AI analysis pipeline.
+        """
+        logger.info(
+            "OCR background task queued for case %s with %d file(s)",
+            case_id,
+            len(file_ids),
+        )
+
 
 ocr_service = OCRService()

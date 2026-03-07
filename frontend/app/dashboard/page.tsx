@@ -27,6 +27,7 @@ const STATUS_BADGE: Record<CaseStatus, string> = {
   flagged: "status-flagged",
   under_review: "status-under_review",
   completed: "status-completed",
+  deleted: "status-badge bg-gray-100 text-gray-500",
 };
 
 const ROLE_QUICK_ACTIONS: Record<UserRole, { href: string; label: string; icon: React.ElementType }[]> = {
