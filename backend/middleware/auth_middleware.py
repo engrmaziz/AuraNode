@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
+from jose import JWTError, jwt
 from supabase import Client
 
 from config.settings import settings
@@ -22,6 +23,54 @@ def get_supabase_client() -> Client:
     return supabase_service.client
 
 
+def _decode_jwt(token: str) -> dict:
+    """Decode and verify a Supabase JWT using the HS256 secret.
+
+    Raises HTTPException 401 on any verification failure.
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+        return payload
+    except JWTError as exc:
+        logger.debug("JWT decode failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+async def _get_user_from_token(token: str) -> UserProfile:
+    """Decode the JWT and return the corresponding UserProfile.
+
+    Raises HTTPException 401 if the token is invalid or the user is not found.
+    """
+    payload = _decode_jwt(token)
+
+    user_id_str: Optional[str] = payload.get("sub")
+    if not user_id_str:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token data.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = await supabase_service.get_user_profile(user_id=user_id_str)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return user
+
+
 async def verify_token(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> TokenData:
@@ -36,15 +85,7 @@ async def verify_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = credentials.credentials
-    user = await supabase_service.verify_token(token)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token. Please log in again.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    user = await _get_user_from_token(credentials.credentials)
 
     try:
         return TokenData(user_id=UUID(user.id), role=user.role)
@@ -70,17 +111,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = credentials.credentials
-    user = await supabase_service.verify_token(token)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token. Please log in again.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    return user
+    return await _get_user_from_token(credentials.credentials)
 
 
 def require_role(*roles: str) -> Callable:
