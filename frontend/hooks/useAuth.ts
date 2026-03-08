@@ -23,16 +23,29 @@ export function useAuth(): AuthState {
 
   const supabase = createBrowserClient();
 
-  const fetchProfile = async (accessToken: string): Promise<User | null> => {
+  const buildFallbackUser = (sbUser: SupabaseUser): User => {
+    const meta = sbUser.user_metadata ?? {};
+    return {
+      id: sbUser.id,
+      email: sbUser.email ?? "",
+      role: (meta.role as User["role"]) ?? "clinic",
+      full_name: (meta.full_name as string | null) ?? null,
+      organization: (meta.organization as string | null) ?? null,
+      created_at: sbUser.created_at ?? new Date().toISOString(),
+      updated_at: (sbUser.updated_at as string | undefined) ?? new Date().toISOString(),
+    };
+  };
+
+  const fetchProfile = async (accessToken: string, sbUser: SupabaseUser): Promise<User> => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res = await fetch(`${apiUrl}/api/v1/auth/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (!res.ok) return null;
+      if (!res.ok) return buildFallbackUser(sbUser);
       return (await res.json()) as User;
     } catch {
-      return null;
+      return buildFallbackUser(sbUser);
     }
   };
 
@@ -44,7 +57,7 @@ export function useAuth(): AuthState {
       if (!mounted) return;
       if (session?.user) {
         setSupabaseUser(session.user);
-        const profile = await fetchProfile(session.access_token);
+        const profile = await fetchProfile(session.access_token, session.user);
         if (mounted) setUser(profile);
       }
       if (mounted) setLoading(false);
@@ -58,7 +71,7 @@ export function useAuth(): AuthState {
 
       if (session?.user) {
         setSupabaseUser(session.user);
-        const profile = await fetchProfile(session.access_token);
+        const profile = await fetchProfile(session.access_token, session.user);
         if (mounted) setUser(profile);
       } else {
         setSupabaseUser(null);

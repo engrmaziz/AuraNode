@@ -130,7 +130,13 @@ export default function DashboardLayout({
     );
   }
 
-  if (!user) return null;
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Activity className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const navItems = NAV_BY_ROLE[user.role as UserRole] ?? NAV_BY_ROLE.clinic;
 
