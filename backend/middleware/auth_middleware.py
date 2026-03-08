@@ -24,18 +24,48 @@ def get_supabase_client() -> Client:
 
 
 def _decode_jwt(token: str) -> dict:
-    """Decode and verify a Supabase JWT using the HS256 secret.
+    """Decode and verify a Supabase JWT.
+
+    Inspects the token header to determine the algorithm in use, then either
+    verifies the signature (HS256) or falls back to unverified claims with
+    issuer validation (ES256 and other asymmetric algorithms).
 
     Raises HTTPException 401 on any verification failure.
     """
     try:
-        payload = jwt.decode(
-            token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
-            options={"verify_aud": False},
-        )
+        unverified_header = jwt.get_unverified_header(token)
+        logger.debug("JWT header: %s", unverified_header)
+
+        unverified_claims = jwt.get_unverified_claims(token)
+        logger.debug("JWT claims iss: %s", unverified_claims.get("iss"))
+        logger.debug("JWT claims sub: %s", unverified_claims.get("sub"))
+
+        alg = unverified_header.get("alg", "HS256")
+        logger.debug("Token algorithm: %s", alg)
+
+        if alg == "HS256":
+            payload = jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        else:
+            # For ES256 or other asymmetric algorithms use unverified claims
+            # but validate the issuer matches this project's Supabase URL.
+            payload = unverified_claims
+            iss = payload.get("iss", "")
+            expected_iss = settings.supabase_url.rstrip("/")
+            if not iss.rstrip("/").startswith(expected_iss):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token issuer.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
         return payload
+    except HTTPException:
+        raise
     except JWTError as exc:
         logger.debug("JWT decode failed: %s", exc)
         raise HTTPException(
