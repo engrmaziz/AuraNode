@@ -24,6 +24,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.3.0",
+    "tailwindcss-animate": "^1.0.7",
     "lucide-react": "^0.379.0",
     "axios": "^1.7.2",
     "react-dropzone": "^14.2.3",
