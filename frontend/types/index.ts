@@ -204,3 +204,41 @@ export interface FilterOptions {
   order_by?: string;
   order_dir?: "asc" | "desc";
 }
+
+// ─── Case Management Workflow Types ─────────────────────────
+
+export interface CaseStats {
+  total: number;
+  by_status: {
+    uploaded: number;
+    processing: number;
+    flagged: number;
+    under_review: number;
+    completed: number;
+  };
+  by_priority: {
+    low: number;
+    normal: number;
+    high: number;
+    critical: number;
+  };
+  flagged_today: number;
+  completed_this_week: number;
+  average_processing_time_hours: number;
+}
+
+export interface TimelineEvent {
+  action: string;
+  performed_by: string | null;
+  timestamp: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface FilterState {
+  status: string[];
+  priority: string;
+  search: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
