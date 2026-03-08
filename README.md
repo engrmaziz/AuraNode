@@ -38,7 +38,7 @@ AuraNode is a HIPAA-conscious medical imaging SaaS platform that:
 - **Role-Based Access** — Clinic, Specialist, and Admin roles with row-level security
 - **Audit Trail** — Every action recorded in `audit_logs` with user ID and timestamp
 - **Error Tracking** — Sentry integration on both frontend and backend
-- **CI/CD Pipelines** — Automated deploy to Vercel (frontend) and Railway (backend)
+- **CI/CD Pipelines** — Automated deploy to Vercel (frontend) and Render (backend)
 
 ---
 
@@ -56,7 +56,7 @@ AuraNode is a HIPAA-conscious medical imaging SaaS platform that:
 | PDF Generation | ReportLab |
 | Error Tracking | Sentry |
 | Frontend Hosting | Vercel |
-| Backend Hosting | Railway (Docker) |
+| Backend Hosting | Render (Docker) |
 | CI/CD | GitHub Actions |
 
 ---
@@ -74,7 +74,7 @@ AuraNode is a HIPAA-conscious medical imaging SaaS platform that:
          │               │               │               │
          ▼               ▼               ▼               ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend (Railway)                      │
+│                    FastAPI Backend (Render)                       │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐    │
 │  │   Auth   │  │  Cases   │  │ Analysis │  │   Reports    │    │
 │  │  Router  │  │  Router  │  │  Router  │  │    Router    │    │
@@ -190,7 +190,7 @@ auranode/
 │   └── db-setup.sql              # Supabase SQL schema
 ├── .github/workflows/
 │   ├── frontend-deploy.yml       # Vercel deploy on push
-│   └── backend-deploy.yml        # Railway deploy on push
+│   └── backend-deploy.yml        # Render deploy on push
 └── README.md
 ```
 
@@ -244,7 +244,7 @@ This will:
 3. Create `backend/.env` from the example
 4. Install all frontend npm dependencies
 5. Install all backend Python dependencies
-6. Print Supabase, Vercel, and Railway deployment instructions
+6. Print Supabase, Vercel, and Render deployment instructions
 7. Print the full environment variables checklist
 
 ### 5. Fill Environment Variables
@@ -278,7 +278,7 @@ cd backend && uvicorn main:app --reload
 |----------|-------------|---------------|----------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Supabase → Settings → API → Project URL | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key | Supabase → Settings → API → anon/public | ✅ |
-| `NEXT_PUBLIC_API_URL` | Backend URL (e.g. `https://api.up.railway.app`) | Railway dashboard after deploy | ✅ |
+| `NEXT_PUBLIC_API_URL` | Backend URL (e.g. `https://api.onrender.com`) | Render dashboard after deploy | ✅ |
 | `NEXT_PUBLIC_SENTRY_DSN` | Sentry DSN for browser error tracking | Sentry → Project → Settings → Client Keys | ⬜ |
 | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | Domain for Plausible analytics | Your Plausible dashboard | ⬜ |
 
@@ -354,36 +354,28 @@ Every push to `main` that touches `frontend/**` triggers an automatic deploy.
 
 ---
 
-### Backend → Railway
+### Backend → Render
 
-**Option A: Railway Dashboard**
+**Option A: Render Dashboard**
 
-1. Go to https://railway.app/new and connect your GitHub repository
-2. Select the `backend` folder as root (or set `RAILWAY_DOCKERFILE_PATH=backend/Dockerfile`)
-3. Add all environment variables from `backend/.env`
-4. Railway auto-detects the `Dockerfile` and builds/deploys
+1. Go to https://render.com and connect your GitHub repository
+2. Set **Root Directory** to `backend`
+3. Set **Runtime** to `Docker`
+4. Add all environment variables from `backend/.env.example`
+5. Enable **Auto-Deploy** from the `main` branch
+6. Click **Create Web Service** — Render builds the `Dockerfile` and deploys automatically
 
-**Option B: Railway CLI**
+**Option B: GitHub Actions (automatic)**
 
-```bash
-npm install -g @railway/cli
-cd backend
-railway login
-railway link     # select or create project
-railway up       # deploy
-```
-
-**Option C: GitHub Actions (automatic)**
-
-Add this secret to your GitHub repository:
+Add this secret to your GitHub repository (**Settings → Secrets → Actions**):
 
 | Secret | Description |
 |--------|-------------|
-| `RAILWAY_TOKEN` | Railway project token (found in Railway project settings) |
-| `DOCKER_USERNAME` | Docker Hub username (for image registry) |
-| `DOCKER_PASSWORD` | Docker Hub password / access token |
+| `RENDER_DEPLOY_HOOK_URL` | Render deploy hook URL (found in Render service settings → Deploy Hook) |
 
-Every push to `main` that touches `backend/**` triggers an automatic build, push, and deploy.
+> **Note**: The previous Docker Hub and Render-unrelated secrets (`DOCKER_USERNAME`, `DOCKER_PASSWORD`, and the old CI token) are no longer required and can be removed from your repository secrets.
+
+Every push to `main` that touches `backend/**` triggers an automatic deploy via the Render deploy hook.
 
 ---
 
@@ -471,11 +463,11 @@ Also confirm the case status is `completed` — reports can only be generated fo
 
 ---
 
-### 5. Railway deploy fails with `no matching manifest for linux/amd64`
+### 5. Render deploy does not pick up the Dockerfile
 
-**Symptom**: Docker build fails on Railway with a manifest error.
+**Symptom**: Render build fails or uses the wrong runtime.
 
-**Fix**: Add `--platform linux/amd64` to the `FROM` line in `backend/Dockerfile`, or set the Railway build platform to `linux/amd64` in the Railway project settings.
+**Fix**: In the Render service settings, confirm **Root Directory** is set to `backend` and **Runtime** is set to `Docker`. Render will then use `backend/Dockerfile` for every deploy.
 
 ---
 
