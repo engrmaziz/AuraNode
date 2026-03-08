@@ -58,10 +58,17 @@ class OCRService:
        from services.supabase_service import supabase_service  # noqa: PLC0415
 file_url = await supabase_service.get_signed_url(file_url)
 
+from services.supabase_service import supabase_service  # noqa: PLC0415
+# Extract storage_path from public URL or use directly
+storage_path = "/".join(file_url.split("/object/public/diagnostic-uploads/")[-1].split("?")[0].split("/"))
+signed_url = await supabase_service.get_signed_url(storage_path=storage_path)
+
 async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
-    resp = await client.get(file_url)
+    resp = await client.get(signed_url)
     resp.raise_for_status()
     image_bytes = resp.content
+
+
 
         image = Image.open(io.BytesIO(image_bytes))
         image = self._preprocess_image(image)
@@ -109,12 +116,14 @@ async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
         start = time.monotonic()
 
 from services.supabase_service import supabase_service  # noqa: PLC0415
-file_url = await supabase_service.get_signed_url(file_url)
-        
-        async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
-            resp = await client.get(file_url)
-            resp.raise_for_status()
-            pdf_bytes = resp.content
+# Extract storage_path from public URL or use directly
+storage_path = "/".join(file_url.split("/object/public/diagnostic-uploads/")[-1].split("?")[0].split("/"))
+signed_url = await supabase_service.get_signed_url(storage_path=storage_path)
+
+async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
+    resp = await client.get(signed_url)
+    resp.raise_for_status()
+    image_bytes = resp.content
 
         all_text_parts: list = []
         all_confidences: list = []
