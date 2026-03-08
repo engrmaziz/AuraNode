@@ -1,7 +1,7 @@
 "use client";
 
+import { Component, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
@@ -19,6 +19,51 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useCaseStats } from "@/hooks/useCaseStats";
 import type { UserRole } from "@/types";
+
+// ─── Error Boundary ──────────────────────────────────────────
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  message: string;
+}
+
+class DashboardErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : "An unexpected error occurred.",
+    };
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+          <AlertTriangle className="h-10 w-10 text-red-500" />
+          <h2 className="text-lg font-semibold">Something went wrong</h2>
+          <p className="text-sm text-muted-foreground max-w-sm">{this.state.message}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ─── Quick-action config ─────────────────────────────────────
 
@@ -117,12 +162,17 @@ function PriorityBarChart({ data }: PriorityBarChartProps) {
 
 // ─── Page ────────────────────────────────────────────────────
 
-export default function DashboardPage() {
-  const router = useRouter();
-  const { user } = useAuth();
+function DashboardContent() {
+  const { user, loading: authLoading } = useAuth();
   const { stats, loading, error, refetch } = useCaseStats();
 
-  if (!user) return null;
+  if (authLoading || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Activity className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const quickActions = ROLE_QUICK_ACTIONS[user.role as UserRole] ?? ROLE_QUICK_ACTIONS.clinic;
 
@@ -345,6 +395,14 @@ export default function DashboardPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <DashboardErrorBoundary>
+      <DashboardContent />
+    </DashboardErrorBoundary>
   );
 }
 
