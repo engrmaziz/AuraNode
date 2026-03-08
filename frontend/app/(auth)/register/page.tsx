@@ -79,13 +79,15 @@ export default function RegisterPage() {
 
       if (authData.user) {
         // 2. Insert into public.users table
-        const { error: profileError } = await supabase.from("users").insert({
-          id: authData.user.id,
-          email: data.email,
-          role: data.role,
-          full_name: data.full_name,
-          organization: data.organization ?? null,
-        });
+        const { error: profileError } = await (supabase as any) // type-assert: supabase-js v2.98 ↔ auth-helpers v0.10 generics mismatch
+          .from("users")
+          .insert({
+            id: authData.user.id,
+            email: data.email,
+            role: data.role,
+            full_name: data.full_name,
+            organization: data.organization ?? null,
+          });
 
         if (profileError) {
           console.error("Profile creation error:", profileError);
@@ -139,7 +141,7 @@ export default function RegisterPage() {
               >
                 <input type="radio" value={role} className="sr-only" {...register("role")} />
                 <span className="text-xs font-semibold capitalize">{role}</span>
-                <span className="mt-0.5 text-xs opacity-75">{roleDescriptions[role]}</span>
+                <span className="mt-0.5 text-xs opacity-75">{roleDescriptions[role as "clinic" | "specialist"]}</span>
               </label>
             ))}
           </div>

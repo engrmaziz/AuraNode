@@ -33,6 +33,7 @@ export interface Database {
           organization?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
       cases: {
         Row: {
@@ -66,6 +67,7 @@ export interface Database {
           assigned_specialist_id?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
       case_files: {
         Row: {
@@ -87,7 +89,10 @@ export interface Database {
           file_type: string;
           storage_path: string;
         };
-        Update: never;
+        Update: {
+          file_url?: string;
+        };
+        Relationships: [];
       };
       analysis_results: {
         Row: {
@@ -122,6 +127,7 @@ export interface Database {
           flagged_status?: boolean;
           ai_findings?: Record<string, unknown> | null;
         };
+        Relationships: [];
       };
       reviews: {
         Row: {
@@ -149,6 +155,7 @@ export interface Database {
           risk_assessment?: string | null;
           recommendations?: string | null;
         };
+        Relationships: [];
       };
       reports: {
         Row: {
@@ -166,7 +173,10 @@ export interface Database {
           storage_path: string;
           generated_by?: string | null;
         };
-        Update: never;
+        Update: {
+          report_url?: string;
+        };
+        Relationships: [];
       };
       audit_logs: {
         Row: {
@@ -188,9 +198,14 @@ export interface Database {
           metadata?: Record<string, unknown> | null;
           ip_address?: string | null;
         };
-        Update: never;
+        Update: {
+          metadata?: Record<string, unknown> | null;
+        };
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 }
 

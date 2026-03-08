@@ -70,7 +70,7 @@ export async function middleware(request: NextRequest) {
       .eq("id", session.user.id)
       .single();
 
-    const userRole = userData?.role;
+    const userRole = (userData as unknown as { role?: string } | null)?.role;
 
     if (userRole) {
         if (!isRoleAllowed(pathname, userRole)) {

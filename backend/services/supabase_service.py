@@ -1,6 +1,7 @@
 """Supabase service — all database and storage interactions."""
 import logging
 import uuid
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from supabase import Client, create_client
@@ -614,7 +615,36 @@ class SupabaseService:
             )
             .execute()
         )
-        return self._row_to_review(resp.data[0])
+        row = resp.data[0]
+        specialist_name = await self._get_user_full_name(specialist_id)
+        return self._row_to_review(row, specialist_name=specialist_name)
+
+    async def get_review(self, *, review_id: str) -> Optional[ReviewResponse]:
+        """Fetch a single review by ID."""
+        resp = (
+            self.client.table("reviews")
+            .select("*")
+            .eq("id", review_id)
+            .single()
+            .execute()
+        )
+        if not resp.data:
+            return None
+        return self._row_to_review(resp.data)
+
+    async def update_review(self, *, review_id: str, payload: "ReviewUpdate") -> ReviewResponse:  # type: ignore[name-defined]
+        """Update a review record."""
+        from models.review import ReviewUpdate  # local import to avoid circular
+        update_data = payload.model_dump(exclude_none=True)
+        resp = (
+            self.client.table("reviews")
+            .update(update_data)
+            .eq("id", review_id)
+            .execute()
+        )
+        row = resp.data[0]
+        specialist_name = await self._get_user_full_name(row["specialist_id"])
+        return self._row_to_review(row, specialist_name=specialist_name)
 
     async def list_reviews(self, *, case_id: str) -> List[ReviewResponse]:
         resp = (
@@ -624,7 +654,109 @@ class SupabaseService:
             .order("reviewed_at", desc=True)
             .execute()
         )
-        return [self._row_to_review(row) for row in (resp.data or [])]
+        reviews = []
+        for row in resp.data or []:
+            specialist_name = await self._get_user_full_name(row["specialist_id"])
+            reviews.append(self._row_to_review(row, specialist_name=specialist_name))
+        return reviews
+
+    async def get_specialist_queue(self, *, specialist_id: str) -> list:
+        """Return cases assigned to specialist with flagged/under_review status, with analysis and file count."""
+        cases_resp = (
+            self.client.table("cases")
+            .select("*")
+            .eq("assigned_specialist_id", specialist_id)
+            .in_("status", ["flagged", "under_review"])
+            .order("created_at", desc=False)
+            .execute()
+        )
+        cases = cases_resp.data or []
+
+        result = []
+        for case in cases:
+            case_id = case["id"]
+
+            # Get latest analysis result
+            analysis_resp = (
+                self.client.table("analysis_results")
+                .select("*")
+                .eq("case_id", case_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            analysis = analysis_resp.data[0] if analysis_resp.data else None
+
+            # Get file count
+            files_resp = (
+                self.client.table("case_files")
+                .select("id", count="exact")
+                .eq("case_id", case_id)
+                .execute()
+            )
+            file_count = files_resp.count or 0
+
+            result.append({
+                **case,
+                "analysis": analysis,
+                "file_count": file_count,
+            })
+
+        # Sort: priority desc (critical first), then created_at asc
+        priority_weight = {"critical": 0, "high": 1, "normal": 2, "low": 3}
+        result.sort(key=lambda c: (priority_weight.get(c.get("priority", "normal"), 2), c.get("created_at", "")))
+        return result
+
+    async def get_review_stats(self, *, specialist_id: Optional[str] = None) -> "ReviewSummary":  # type: ignore[name-defined]
+        """Return aggregated review statistics."""
+        from models.review import ReviewSummary  # local import to avoid circular
+        query = self.client.table("reviews").select("*")
+        if specialist_id:
+            query = query.eq("specialist_id", specialist_id)
+
+        resp = query.execute()
+        rows = resp.data or []
+
+        total = len(rows)
+        approved = sum(1 for r in rows if r.get("decision") == "approved")
+        rejected = sum(1 for r in rows if r.get("decision") == "rejected")
+        needs_more_info = sum(1 for r in rows if r.get("decision") == "needs_more_info")
+
+        # Calculate average review time: time from case created_at to review reviewed_at
+        avg_hours = 0.0
+        if rows:
+            total_hours = 0.0
+            count = 0
+            for row in rows:
+                try:
+                    reviewed_at = datetime.fromisoformat(str(row["reviewed_at"]).replace("Z", "+00:00"))
+                    case_resp = (
+                        self.client.table("cases")
+                        .select("created_at")
+                        .eq("id", row["case_id"])
+                        .single()
+                        .execute()
+                    )
+                    if case_resp.data:
+                        case_created = datetime.fromisoformat(
+                            str(case_resp.data["created_at"]).replace("Z", "+00:00")
+                        )
+                        diff_hours = (reviewed_at - case_created).total_seconds() / 3600
+                        if diff_hours >= 0:
+                            total_hours += diff_hours
+                            count += 1
+                except Exception:
+                    pass
+            if count > 0:
+                avg_hours = round(total_hours / count, 2)
+
+        return ReviewSummary(
+            total_reviews=total,
+            approved=approved,
+            rejected=rejected,
+            needs_more_info=needs_more_info,
+            average_review_time_hours=avg_hours,
+        )
 
     # ─── Reports ──────────────────────────────────────────
 
@@ -729,17 +861,32 @@ class SupabaseService:
         )
 
     @staticmethod
-    def _row_to_review(row: dict) -> ReviewResponse:
+    def _row_to_review(row: dict, *, specialist_name: Optional[str] = None) -> ReviewResponse:
         return ReviewResponse(
             id=row["id"],
             case_id=row["case_id"],
             specialist_id=row["specialist_id"],
+            specialist_name=specialist_name,
             notes=row.get("notes"),
             decision=row.get("decision"),
             risk_assessment=row.get("risk_assessment"),
             recommendations=row.get("recommendations"),
             reviewed_at=row["reviewed_at"],
         )
+
+    async def _get_user_full_name(self, user_id: str) -> Optional[str]:
+        """Fetch full_name for a user by ID."""
+        try:
+            resp = (
+                self.client.table("users")
+                .select("full_name")
+                .eq("id", user_id)
+                .single()
+                .execute()
+            )
+            return resp.data.get("full_name") if resp.data else None
+        except Exception:
+            return None
 
     @staticmethod
     def _row_to_report(row: dict) -> ReportResponse:
