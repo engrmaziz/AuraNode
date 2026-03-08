@@ -14,7 +14,7 @@ export interface AuthState {
 
 /**
  * Custom hook that subscribes to the Supabase auth state and keeps a
- * `User` profile (fetched from GET /api/v1/auth/me) in sync.
+ * `User` profile (fetched directly from the Supabase `users` table) in sync.
  */
 export function useAuth(): AuthState {
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
@@ -36,17 +36,26 @@ export function useAuth(): AuthState {
     };
   };
 
-  const fetchProfile = async (accessToken: string, sbUser: SupabaseUser): Promise<User> => {
+  const fetchProfile = async (sbUser: SupabaseUser): Promise<User> => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiUrl}/api/v1/auth/me`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!res.ok) return buildFallbackUser(sbUser);
-      return (await res.json()) as User;
-    } catch {
-      return buildFallbackUser(sbUser);
+      const { data: profile, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", sbUser.id)
+        .single();
+      if (error) {
+        console.error("Failed to fetch user profile from Supabase:", error.message);
+      } else if (profile) {
+        // `users` table Row type is structurally identical to the User interface;
+        // the `as unknown as User` cast is required because Supabase's generic
+        // inference resolves to `never` for the row type in this context.
+        return profile as unknown as User;
+      }
+    } catch (err) {
+      console.error("Unexpected error fetching user profile:", err);
     }
+    console.warn("Falling back to Supabase auth metadata for user profile:", sbUser.id);
+    return buildFallbackUser(sbUser);
   };
 
   useEffect(() => {
@@ -57,7 +66,7 @@ export function useAuth(): AuthState {
       if (!mounted) return;
       if (session?.user) {
         setSupabaseUser(session.user);
-        const profile = await fetchProfile(session.access_token, session.user);
+        const profile = await fetchProfile(session.user);
         if (mounted) setUser(profile);
       }
       if (mounted) setLoading(false);
@@ -71,7 +80,7 @@ export function useAuth(): AuthState {
 
       if (session?.user) {
         setSupabaseUser(session.user);
-        const profile = await fetchProfile(session.access_token, session.user);
+        const profile = await fetchProfile(session.user);
         if (mounted) setUser(profile);
       } else {
         setSupabaseUser(null);
