@@ -78,11 +78,16 @@ export function useAuth(): AuthState {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
 
-      if (session?.user) {
+      if (event === "SIGNED_OUT") {
+        // Only clear auth state when Supabase explicitly signs the user out
+        setSupabaseUser(null);
+        setUser(null);
+      } else if (session?.user) {
         setSupabaseUser(session.user);
         const profile = await fetchProfile(session.user);
         if (mounted) setUser(profile);
-      } else {
+      } else if (!session) {
+        // Session expired or invalidated without an explicit SIGNED_OUT event
         setSupabaseUser(null);
         setUser(null);
       }

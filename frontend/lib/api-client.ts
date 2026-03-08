@@ -7,7 +7,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
  * Create a configured Axios instance with:
  * - Base URL from environment
  * - Request interceptor: attaches Supabase JWT token
- * - Response interceptor: handles 401 (redirect to login) and 500 (error toast)
+ * - Response interceptor: handles 401 (warn only, no redirect) and 500 (error log)
  */
 const createApiClient = (): AxiosInstance => {
   const client = axios.create({
@@ -39,14 +39,12 @@ const createApiClient = (): AxiosInstance => {
   // Response interceptor: handle errors globally
   client.interceptors.response.use(
     (response: AxiosResponse) => response,
-    async (error: AxiosError) => {
+    (error: AxiosError) => {
       const status = error.response?.status;
 
       if (status === 401) {
-        // Token expired or invalid — redirect to login
-        if (typeof window !== "undefined") {
-          window.location.href = "/login";
-        }
+        // Do NOT redirect or sign out — let each component handle 401 itself
+        console.warn("API returned 401 for:", error.config?.url);
       } else if (status === 403) {
         console.error("Access forbidden:", error.response?.data);
       } else if (status === 500) {
