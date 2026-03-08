@@ -73,11 +73,24 @@ export interface OCRStatus {
 }
 
 export interface AIFindings {
+  // New Phase 5 fields
+  detected_category?: string;
+  category_confidence?: number;
+  extracted_entities?: AIEntity[];
+  critical_keywords_found?: string[];
+  analysis_summary?: string;
+  // Legacy fields (kept for backward compatibility)
   summary: string;
   anomalies: string[];
   recommendations: string[];
   confidence_breakdown: Record<string, number>;
   raw_response?: string;
+}
+
+export interface AIEntity {
+  entity: string;
+  label: string;
+  confidence: number;
 }
 
 export interface Review {

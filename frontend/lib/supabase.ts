@@ -1,6 +1,5 @@
 import { createClientComponentClient, createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 
 export type UserRole = "clinic" | "specialist" | "admin";
 
@@ -209,8 +208,12 @@ export const createBrowserClient = () =>
  * Server-side Supabase client.
  * Use in Server Components, Route Handlers, and Server Actions.
  */
-export const createServerClient = () =>
-  createServerComponentClient<Database>({ cookies });
+export const createServerClient = () => {
+  // Lazy require to avoid bundling "next/headers" into client component builds.
+  // This function only runs on the server; the require() executes at call time.
+  const { cookies } = require("next/headers") as { cookies: typeof import("next/headers").cookies }; // eslint-disable-line
+  return createServerComponentClient<Database>({ cookies });
+};
 
 /**
  * Admin Supabase client using service role key.

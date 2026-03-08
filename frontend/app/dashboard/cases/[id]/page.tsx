@@ -15,6 +15,8 @@ import {
 import { StatusBadge } from "@/components/cases/StatusBadge";
 import { OCRStatus } from "@/components/analysis/OCRStatus";
 import { ExtractedTextViewer } from "@/components/analysis/ExtractedTextViewer";
+import { AIFindingsPanel } from "@/components/analysis/AIFindingsPanel";
+import { AnalysisSkeleton } from "@/components/analysis/AnalysisSkeleton";
 import { useCase } from "@/hooks/useCases";
 import { useAuth } from "@/hooks/useAuth";
 import { get, post } from "@/lib/api-client";
@@ -116,17 +118,21 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
 
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [reprocessing, setReprocessing] = useState(false);
 
   const fetchAnalysis = useCallback(async () => {
     setLoadingAnalysis(true);
+    setAnalysisError(null);
     try {
       const results = await get<AnalysisResult[]>(`/api/v1/analysis/case/${caseId}`);
       if (results.length > 0) {
         setAnalysis(results[0]);
+      } else {
+        setAnalysis(null);
       }
     } catch {
-      // no results yet
+      setAnalysisError("Failed to load analysis results.");
     } finally {
       setLoadingAnalysis(false);
     }
@@ -134,11 +140,12 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
 
   const handleReprocess = async () => {
     setReprocessing(true);
+    setAnalysisError(null);
     try {
       await post(`/api/v1/analysis/case/${caseId}/reprocess`);
       setAnalysis(null);
     } catch {
-      // ignore
+      setAnalysisError("Reprocess request failed. Please try again.");
     } finally {
       setReprocessing(false);
     }
@@ -147,39 +154,84 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
   const isProcessing =
     caseStatus === "processing" || caseStatus === "uploaded";
   const ocrComplete = !!(analysis?.extracted_text);
+  // AI findings are populated once ai_findings or risk_score is set
+  const aiComplete =
+    analysis != null &&
+    (analysis.ai_findings != null || analysis.risk_score != null);
+  // AI is running when OCR is done but AI findings not yet available
+  const aiRunning = ocrComplete && !aiComplete && !loadingAnalysis;
 
   return (
     <div className="space-y-5">
-      {/* OCR status — show when processing or no result yet */}
-      {(isProcessing || (!ocrComplete && !loadingAnalysis)) && (
+      {/* OCR status — show when processing or no OCR result yet */}
+      {(isProcessing || (!ocrComplete && !loadingAnalysis && !analysisError)) && (
         <OCRStatus caseId={caseId} onComplete={fetchAnalysis} />
       )}
 
-      {/* Extracted text — show when complete */}
-      {ocrComplete && analysis && (
-        <>
-          <ExtractedTextViewer
-            text={analysis.extracted_text!}
-            confidence={analysis.confidence_score ?? 0}
-          />
-
-          {/* Meta row */}
-          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-            {analysis.processing_time_ms != null && (
-              <span>Processing time: {analysis.processing_time_ms} ms</span>
-            )}
-            {analysis.model_version && (
-              <span>Model: {analysis.model_version}</span>
-            )}
+      {/* Error state */}
+      {analysisError && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-4 text-sm text-red-700 dark:text-red-400">
+          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-medium">Analysis failed</p>
+            <p className="mt-0.5 text-xs">{analysisError}</p>
           </div>
-        </>
+          <button
+            type="button"
+            onClick={fetchAnalysis}
+            className="ml-auto inline-flex items-center gap-1 text-xs underline hover:no-underline"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
+        </div>
       )}
 
-      {/* Loading state */}
+      {/* "Analysis not yet started" state */}
+      {!isProcessing && !ocrComplete && !loadingAnalysis && !analysisError && (
+        <div className="py-10 text-center text-muted-foreground">
+          <p className="font-medium">Analysis not yet started</p>
+          <p className="mt-1 text-sm">Upload a file and start processing to begin analysis.</p>
+        </div>
+      )}
+
+      {/* Extracted text — shown when OCR done */}
+      {ocrComplete && analysis && (
+        <ExtractedTextViewer
+          text={analysis.extracted_text!}
+          confidence={analysis.confidence_score ?? 0}
+        />
+      )}
+
+      {/* AI analysis skeleton — shown while AI is running after OCR */}
+      {aiRunning && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            AI analysis in progress…
+          </p>
+          <AnalysisSkeleton />
+        </div>
+      )}
+
+      {/* Loading state for initial fetch */}
       {loadingAnalysis && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading analysis…
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading analysis…
+          </p>
+          <AnalysisSkeleton />
+        </div>
+      )}
+
+      {/* AI findings panel — shown when AI analysis is complete */}
+      {aiComplete && analysis && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            AI Findings
+          </p>
+          <AIFindingsPanel findings={analysis} />
         </div>
       )}
 

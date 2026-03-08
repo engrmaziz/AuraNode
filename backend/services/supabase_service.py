@@ -1,7 +1,7 @@
 """Supabase service — all database and storage interactions."""
 import logging
 import uuid
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from supabase import Client, create_client
 
@@ -517,6 +517,83 @@ class SupabaseService:
             .execute()
         )
         return [self._row_to_analysis(row) for row in (resp.data or [])]
+
+    async def update_case_analysis(
+        self,
+        *,
+        case_id: str,
+        risk_score: float,
+        flagged_status: bool,
+        ai_findings: Optional[dict] = None,
+    ) -> None:
+        """Update the most recent analysis_results row for a case with AI findings."""
+        # Find the latest analysis record for this case
+        resp = (
+            self.client.table("analysis_results")
+            .select("id")
+            .eq("case_id", case_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not resp.data:
+            logger.warning("update_case_analysis: no analysis record found for case=%s", case_id)
+            return
+        analysis_id = resp.data[0]["id"]
+        update_data: dict = {
+            "risk_score": risk_score,
+            "flagged_status": flagged_status,
+        }
+        if ai_findings is not None:
+            update_data["ai_findings"] = ai_findings
+        self.client.table("analysis_results").update(update_data).eq("id", analysis_id).execute()
+
+    async def get_available_specialist(self) -> Optional[str]:
+        """Return a specialist user ID using round-robin selection.
+
+        Selects the specialist who has the fewest assigned open cases.
+        Returns None if no specialists are registered.
+        """
+        try:
+            # Get all specialist user IDs
+            specialists_resp = (
+                self.client.table("users")
+                .select("id")
+                .eq("role", "specialist")
+                .execute()
+            )
+            specialist_rows = specialists_resp.data or []
+            if not specialist_rows:
+                return None
+
+            specialist_ids = [row["id"] for row in specialist_rows]
+
+            # Count open (non-completed, non-deleted) cases per specialist
+            counts_resp = (
+                self.client.table("cases")
+                .select("assigned_specialist_id")
+                .in_("assigned_specialist_id", specialist_ids)
+                .not_.in_("status", ["completed", "deleted"])
+                .execute()
+            )
+            assignment_counts: Dict[str, int] = {sid: 0 for sid in specialist_ids}
+            for row in counts_resp.data or []:
+                sid = row.get("assigned_specialist_id")
+                if sid and sid in assignment_counts:
+                    assignment_counts[sid] += 1
+
+            # Pick the specialist with the lowest active case count
+            chosen = min(assignment_counts, key=lambda sid: assignment_counts[sid])
+            return chosen
+        except Exception as exc:
+            logger.warning("get_available_specialist failed: %s", exc)
+            return None
+
+    async def assign_specialist(self, *, case_id: str, specialist_id: str) -> None:
+        """Assign a specialist to a case by updating assigned_specialist_id."""
+        self.client.table("cases").update(
+            {"assigned_specialist_id": specialist_id}
+        ).eq("id", case_id).execute()
 
     # ─── Reviews ──────────────────────────────────────────
 

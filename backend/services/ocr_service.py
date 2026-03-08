@@ -272,16 +272,33 @@ class OCRService:
                     file_id=str(file_id),
                     model_version=MODEL_VERSION,
                 )
+                # Status will be updated to completed/flagged by AI analysis
                 await supabase_service.update_case_status(
-                    case_id=str(case_id), new_status="completed"
+                    case_id=str(case_id), new_status="processing"
                 )
                 logger.info(
-                    "OCR complete: case=%s confidence=%.2f words=%d [%dms]",
+                    "OCR complete: case=%s confidence=%.2f words=%d [%dms] — triggering AI analysis",
                     case_id,
                     confidence,
                     result.get("word_count", 0),
                     result.get("processing_time_ms", 0),
                 )
+
+                # Trigger AI analysis as a background task
+                from services.ai_analysis_service import ai_analysis_service  # noqa: PLC0415
+
+                def _on_ai_done(task: "asyncio.Task[None]") -> None:
+                    if task.cancelled():
+                        logger.warning("AI analysis task cancelled for case=%s", case_id)
+                    elif task.exception():
+                        logger.error(
+                            "AI analysis task raised an unhandled exception for case=%s: %s",
+                            case_id,
+                            task.exception(),
+                        )
+
+                ai_task = asyncio.create_task(ai_analysis_service.analyze_case(case_id))
+                ai_task.add_done_callback(_on_ai_done)
 
             # Audit log
             await supabase_service.log_audit(
