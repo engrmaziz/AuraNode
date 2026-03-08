@@ -1,4 +1,4 @@
-import { createClientComponentClient, createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { createClientComponentClient, createServerComponentClient, createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
 
 export type UserRole = "clinic" | "specialist" | "admin";
@@ -211,6 +211,13 @@ export interface Database {
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+/**
+ * Middleware Supabase client factory.
+ * Re-exported here so middleware can import it from a single location
+ * alongside the Database type (also exported from this file).
+ */
+export { createMiddlewareClient };
 
 /**
  * Client-side Supabase client.
