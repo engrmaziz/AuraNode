@@ -185,14 +185,11 @@ export default function ReviewStatsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [statsData, reviewsData] = await Promise.all([
-        get<ReviewSummary>("/api/v1/reviews/stats"),
-        get<Review[]>("/api/v1/reviews/my-queue").catch(() => []),
-      ]);
+      const statsData = await get<ReviewSummary>("/api/v1/reviews/stats");
       setStats(statsData);
-      // For recent activity we'd ideally have a dedicated endpoint;
-      // here we surface the queue as a proxy (recent items specialist has touched)
-      setRecentReviews(Array.isArray(reviewsData) ? [] : []);
+      // Recent activity requires a dedicated endpoint not yet implemented;
+      // for now we surface an empty list.
+      setRecentReviews([]);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load stats");
     } finally {

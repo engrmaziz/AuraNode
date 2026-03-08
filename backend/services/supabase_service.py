@@ -10,7 +10,7 @@ from config.settings import settings
 from models.analysis import AnalysisResultResponse
 from models.case import CaseCreate, CaseFileResponse, CaseResponse, CaseUpdate, PaginatedCases
 from models.report import ReportResponse
-from models.review import ReviewCreate, ReviewResponse
+from models.review import ReviewCreate, ReviewResponse, ReviewSummary, ReviewUpdate
 from models.user import LoginResponse, UserProfile
 
 logger = logging.getLogger(__name__)
@@ -632,9 +632,8 @@ class SupabaseService:
             return None
         return self._row_to_review(resp.data)
 
-    async def update_review(self, *, review_id: str, payload: "ReviewUpdate") -> ReviewResponse:  # type: ignore[name-defined]
+    async def update_review(self, *, review_id: str, payload: ReviewUpdate) -> ReviewResponse:
         """Update a review record."""
-        from models.review import ReviewUpdate  # local import to avoid circular
         update_data = payload.model_dump(exclude_none=True)
         resp = (
             self.client.table("reviews")
@@ -707,9 +706,8 @@ class SupabaseService:
         result.sort(key=lambda c: (priority_weight.get(c.get("priority", "normal"), 2), c.get("created_at", "")))
         return result
 
-    async def get_review_stats(self, *, specialist_id: Optional[str] = None) -> "ReviewSummary":  # type: ignore[name-defined]
+    async def get_review_stats(self, *, specialist_id: Optional[str] = None) -> ReviewSummary:
         """Return aggregated review statistics."""
-        from models.review import ReviewSummary  # local import to avoid circular
         query = self.client.table("reviews").select("*")
         if specialist_id:
             query = query.eq("specialist_id", specialist_id)
