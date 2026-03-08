@@ -8,10 +8,58 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from middleware.auth_middleware import get_current_user, require_role
 from models.case import CaseFileResponse, CaseResponse, CaseUpdate, CaseWithFiles, PaginatedCases
 from models.user import UserProfile
+from services.case_service import case_service
 from services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ─── New workflow endpoints (defined before parametric routes) ─
+
+
+@router.get("/stats")
+async def get_case_stats(
+    current_user: UserProfile = Depends(get_current_user),
+) -> dict:
+    """Return aggregate case statistics for the current user."""
+    try:
+        return await case_service.get_case_stats(user=current_user)
+    except Exception as exc:
+        logger.error("get_case_stats error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch case statistics.",
+        ) from exc
+
+
+@router.get("/flagged", response_model=List[CaseResponse])
+async def get_flagged_cases(
+    current_user: UserProfile = Depends(require_role("admin", "specialist")),
+) -> List[CaseResponse]:
+    """Return all flagged cases (admin + specialist only)."""
+    try:
+        return await case_service.get_flagged_cases(user=current_user)
+    except Exception as exc:
+        logger.error("get_flagged_cases error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch flagged cases.",
+        ) from exc
+
+
+@router.get("/queue", response_model=List[CaseResponse])
+async def get_specialist_queue(
+    current_user: UserProfile = Depends(require_role("specialist")),
+) -> List[CaseResponse]:
+    """Return the specialist's assigned cases ordered by priority then date."""
+    try:
+        return await case_service.get_specialist_queue(user=current_user)
+    except Exception as exc:
+        logger.error("get_specialist_queue error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch specialist queue.",
+        ) from exc
 
 
 @router.get("", response_model=PaginatedCases)
@@ -19,6 +67,7 @@ async def list_cases(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=100),
     status_filter: Optional[str] = Query(default=None, alias="status"),
+    priority_filter: Optional[str] = Query(default=None, alias="priority"),
     search: Optional[str] = Query(default=None),
     current_user: UserProfile = Depends(get_current_user),
 ) -> PaginatedCases:
@@ -29,13 +78,18 @@ async def list_cases(
     - Admins see all cases.
     """
     try:
-        return await supabase_service.list_cases_paginated(
-            user_id=current_user.id,
-            role=current_user.role,
+        filters = {}
+        if status_filter:
+            filters["status"] = status_filter
+        if priority_filter:
+            filters["priority"] = priority_filter
+        if search:
+            filters["search"] = search
+        return await case_service.get_cases_for_user(
+            user=current_user,
+            filters=filters,
             page=page,
             per_page=per_page,
-            status_filter=status_filter,
-            search=search,
         )
     except Exception as exc:
         logger.error("list_cases error: %s", exc)
@@ -137,6 +191,7 @@ async def list_case_files(
         ) from exc
 
 
+
 @router.get("/{case_id}/files/{file_id}/download")
 async def download_case_file(
     case_id: UUID,
@@ -166,5 +221,99 @@ async def download_case_file(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate download URL.",
+        ) from exc
+
+
+@router.get("/{case_id}/timeline")
+async def get_case_timeline(
+    case_id: UUID,
+    current_user: UserProfile = Depends(get_current_user),
+) -> list:
+    """Return chronological audit-log timeline for a case."""
+    # Verify case access
+    case = await supabase_service.get_case(
+        case_id=str(case_id), user_id=current_user.id, role=current_user.role
+    )
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+    try:
+        return await case_service.get_case_timeline(case_id=case_id)
+    except Exception as exc:
+        logger.error("get_case_timeline error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch case timeline.",
+        ) from exc
+
+
+@router.put("/{case_id}/status", response_model=CaseResponse)
+async def update_case_status(
+    case_id: UUID,
+    payload: dict,
+    current_user: UserProfile = Depends(get_current_user),
+) -> CaseResponse:
+    """Update case status with transition validation.
+
+    Body: {"status": "<new_status>"}
+    Allowed roles: admin, specialist (for review actions), clinic (for initial uploads).
+    """
+    new_status: Optional[str] = payload.get("status") if isinstance(payload, dict) else None
+    if not new_status:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Request body must include 'status' field.",
+        )
+    try:
+        return await case_service.update_case_status(
+            case_id=case_id,
+            new_status=new_status,
+            updated_by=UUID(current_user.id),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("update_case_status error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update case status.",
+        ) from exc
+
+
+@router.put("/{case_id}/assign", response_model=CaseResponse)
+async def assign_specialist_to_case(
+    case_id: UUID,
+    payload: dict,
+    current_user: UserProfile = Depends(require_role("admin")),
+) -> CaseResponse:
+    """Assign a specialist to a case (admin only).
+
+    Body: {"specialist_id": "<uuid>"}
+    """
+    specialist_id_str: Optional[str] = payload.get("specialist_id") if isinstance(payload, dict) else None
+    if not specialist_id_str:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Request body must include 'specialist_id' field.",
+        )
+    try:
+        specialist_id = UUID(specialist_id_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'specialist_id' must be a valid UUID.",
+        )
+    try:
+        return await case_service.assign_specialist(
+            case_id=case_id,
+            specialist_id=specialist_id,
+            assigned_by=UUID(current_user.id),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("assign_specialist error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to assign specialist.",
         ) from exc
 

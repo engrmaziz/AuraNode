@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useCallback } from "react";
+import { use, useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -11,25 +11,28 @@ import {
   Calendar,
   User,
   RefreshCw,
+  ChevronDown,
 } from "lucide-react";
 import { StatusBadge } from "@/components/cases/StatusBadge";
 import { OCRStatus } from "@/components/analysis/OCRStatus";
 import { ExtractedTextViewer } from "@/components/analysis/ExtractedTextViewer";
 import { AIFindingsPanel } from "@/components/analysis/AIFindingsPanel";
 import { AnalysisSkeleton } from "@/components/analysis/AnalysisSkeleton";
+import { CaseTimeline } from "@/components/cases/CaseTimeline";
 import { useCase } from "@/hooks/useCases";
 import { useAuth } from "@/hooks/useAuth";
-import { get, post } from "@/lib/api-client";
-import type { AnalysisResult, CaseStatus } from "@/types";
+import { get, post, put } from "@/lib/api-client";
+import type { AnalysisResult, CaseStatus, TimelineEvent } from "@/types";
 
 // ─── Types ──────────────────────────────────────────────────
 
-type Tab = "files" | "analysis" | "review" | "report";
+type Tab = "files" | "analysis" | "review" | "timeline" | "report";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "files", label: "Files" },
   { id: "analysis", label: "Analysis" },
   { id: "review", label: "Review" },
+  { id: "timeline", label: "Timeline" },
   { id: "report", label: "Report" },
 ];
 
@@ -51,6 +54,14 @@ const STATUS_ORDER: Record<string, number> = {
   under_review: 3,
   completed: 4,
   deleted: -1,
+};
+
+// Valid next transitions per status
+const NEXT_STATUSES: Record<string, string[]> = {
+  uploaded:     ["processing"],
+  processing:   ["flagged", "completed"],
+  flagged:      ["under_review"],
+  under_review: ["completed", "flagged"],
 };
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -151,24 +162,19 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
     }
   };
 
-  const isProcessing =
-    caseStatus === "processing" || caseStatus === "uploaded";
+  const isProcessing = caseStatus === "processing" || caseStatus === "uploaded";
   const ocrComplete = !!(analysis?.extracted_text);
-  // AI findings are populated once ai_findings or risk_score is set
   const aiComplete =
     analysis != null &&
     (analysis.ai_findings != null || analysis.risk_score != null);
-  // AI is running when OCR is done but AI findings not yet available
   const aiRunning = ocrComplete && !aiComplete && !loadingAnalysis;
 
   return (
     <div className="space-y-5">
-      {/* OCR status — show when processing or no OCR result yet */}
       {(isProcessing || (!ocrComplete && !loadingAnalysis && !analysisError)) && (
         <OCRStatus caseId={caseId} onComplete={fetchAnalysis} />
       )}
 
-      {/* Error state */}
       {analysisError && (
         <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-4 text-sm text-red-700 dark:text-red-400">
           <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
@@ -187,7 +193,6 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
         </div>
       )}
 
-      {/* "Analysis not yet started" state */}
       {!isProcessing && !ocrComplete && !loadingAnalysis && !analysisError && (
         <div className="py-10 text-center text-muted-foreground">
           <p className="font-medium">Analysis not yet started</p>
@@ -195,7 +200,6 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
         </div>
       )}
 
-      {/* Extracted text — shown when OCR done */}
       {ocrComplete && analysis && (
         <ExtractedTextViewer
           text={analysis.extracted_text!}
@@ -203,7 +207,6 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
         />
       )}
 
-      {/* AI analysis skeleton — shown while AI is running after OCR */}
       {aiRunning && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
@@ -214,7 +217,6 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
         </div>
       )}
 
-      {/* Loading state for initial fetch */}
       {loadingAnalysis && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
@@ -225,7 +227,6 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
         </div>
       )}
 
-      {/* AI findings panel — shown when AI analysis is complete */}
       {aiComplete && analysis && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -235,7 +236,6 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
         </div>
       )}
 
-      {/* Re-process button (admin only) */}
       {isAdmin && (
         <button
           type="button"
@@ -255,6 +255,194 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
   );
 }
 
+// ─── Status action header ─────────────────────────────────────
+
+interface StatusActionsProps {
+  caseId: string;
+  currentStatus: string;
+  assignedSpecialistId: string | null;
+  onUpdated: () => void;
+}
+
+function StatusActions({
+  caseId,
+  currentStatus,
+  assignedSpecialistId,
+  onUpdated,
+}: StatusActionsProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const isSpecialist = user?.role === "specialist";
+
+  const [updating, setUpdating] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [specialists, setSpecialists] = useState<{ id: string; name: string }[]>([]);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [selectedSpecialist, setSelectedSpecialist] = useState("");
+
+  const nextStatuses = NEXT_STATUSES[currentStatus] ?? [];
+
+  useEffect(() => {
+    if (!isAdmin || assignedSpecialistId) return;
+    get<{ users?: Array<{ id: string; full_name?: string; email: string }> }>("/api/v1/auth/users?role=specialist")
+      .then((res) => {
+        const list = res.users ?? [];
+        setSpecialists(list.map((u) => ({ id: u.id, name: u.full_name ?? u.email })));
+      })
+      .catch(() => {});
+  }, [isAdmin, assignedSpecialistId]);
+
+  const handleStatusChange = async (newStatus: string) => {
+    setUpdating(true);
+    setError(null);
+    try {
+      await put(`/api/v1/cases/${caseId}/status`, { status: newStatus });
+      onUpdated();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to update status");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleAssign = async () => {
+    if (!selectedSpecialist) return;
+    setAssigning(true);
+    setError(null);
+    try {
+      await put(`/api/v1/cases/${caseId}/assign`, { specialist_id: selectedSpecialist });
+      setAssignOpen(false);
+      onUpdated();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to assign specialist");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  if (!isAdmin && !isSpecialist) return null;
+  if (nextStatuses.length === 0 && (assignedSpecialistId || !isAdmin)) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-1">
+      {/* Update status dropdown (admin + specialist) */}
+      {nextStatuses.length > 0 && (
+        <div className="relative">
+          {nextStatuses.map((ns) => (
+            <button
+              key={ns}
+              type="button"
+              onClick={() => handleStatusChange(ns)}
+              disabled={updating}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-60 transition-colors mr-1.5"
+            >
+              {updating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              Move to: <span className="capitalize">{ns.replaceAll("_", " ")}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Assign specialist (admin, only when unassigned) */}
+      {isAdmin && !assignedSpecialistId && (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setAssignOpen((v) => !v)}
+            disabled={assigning}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium hover:bg-primary/90 disabled:opacity-60 transition-colors"
+          >
+            {assigning ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            Assign Specialist
+            <ChevronDown className="h-3 w-3" />
+          </button>
+
+          {assignOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setAssignOpen(false)} aria-hidden="true" />
+              <div className="absolute left-0 top-full mt-1 z-20 w-56 rounded-lg border border-border bg-white dark:bg-gray-900 shadow-lg p-3 space-y-2">
+                {specialists.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No specialists found.</p>
+                ) : (
+                  <>
+                    <select
+                      value={selectedSpecialist}
+                      onChange={(e) => setSelectedSpecialist(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      aria-label="Select specialist"
+                    >
+                      <option value="">Choose specialist…</option>
+                      {specialists.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!selectedSpecialist}
+                      onClick={handleAssign}
+                      className="w-full rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                    >
+                      Assign
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Timeline tab content ─────────────────────────────────────
+
+function TimelineTab({ caseId }: { caseId: string }) {
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTimeline = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await get<TimelineEvent[]>(`/api/v1/cases/${caseId}/timeline`);
+      setEvents(data);
+    } catch {
+      setError("Failed to load timeline.");
+    } finally {
+      setLoading(false);
+    }
+  }, [caseId]);
+
+  useEffect(() => { fetchTimeline(); }, [fetchTimeline]);
+
+  if (error) {
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-4 text-sm text-red-700 dark:text-red-400">
+        <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="font-medium">Failed to load timeline</p>
+          <p className="mt-0.5 text-xs">{error}</p>
+        </div>
+        <button type="button" onClick={fetchTimeline} className="text-xs underline hover:no-underline">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return <CaseTimeline events={events} loading={loading} />;
+}
+
 // ─── Page ───────────────────────────────────────────────────
 
 export default function CaseDetailPage({
@@ -263,7 +451,7 @@ export default function CaseDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { case: caseData, loading, error } = useCase(id);
+  const { case: caseData, loading, error, refetch } = useCase(id);
   const [activeTab, setActiveTab] = useState<Tab>("files");
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
 
@@ -368,6 +556,14 @@ export default function CaseDetailPage({
           </div>
         </div>
 
+        {/* Status transition actions */}
+        <StatusActions
+          caseId={caseData.id}
+          currentStatus={caseData.status}
+          assignedSpecialistId={caseData.assigned_specialist_id}
+          onUpdated={refetch}
+        />
+
         {/* Status timeline */}
         {caseData.status !== "deleted" && (
           <div className="pt-2">
@@ -469,12 +665,19 @@ export default function CaseDetailPage({
             <AnalysisTab caseId={id} caseStatus={caseData.status} />
           )}
 
-          {/* Other tabs — placeholder */}
+          {/* Review tab */}
           {activeTab === "review" && (
             <div className="py-16 text-center text-muted-foreground">
               <p className="font-medium">Specialist review details will appear here.</p>
             </div>
           )}
+
+          {/* Timeline tab */}
+          {activeTab === "timeline" && (
+            <TimelineTab caseId={id} />
+          )}
+
+          {/* Report tab */}
           {activeTab === "report" && (
             <div className="py-16 text-center text-muted-foreground">
               <p className="font-medium">Generated reports will appear here once analysis is complete.</p>
@@ -485,3 +688,4 @@ export default function CaseDetailPage({
     </div>
   );
 }
+

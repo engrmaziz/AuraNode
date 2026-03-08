@@ -67,6 +67,7 @@ export function useCases(filters: CasesFilters = {}): UseCasesReturn {
           per_page: filters.per_page ?? 20,
         };
         if (filters.status) params.status = filters.status;
+        if (filters.priority) params.priority = filters.priority;
         if (filters.search) params.search = filters.search;
 
         const data = await get<PaginatedCases>("/api/v1/cases", params);
@@ -93,7 +94,7 @@ export function useCases(filters: CasesFilters = {}): UseCasesReturn {
     return () => {
       cancelled = true;
     };
-  }, [filters.status, filters.search, filters.page, filters.per_page, tick]);
+  }, [filters.status, filters.priority, filters.search, filters.page, filters.per_page, tick]);
 
   return { cases, total, page, per_page, has_next, loading, error, refetch };
 }
