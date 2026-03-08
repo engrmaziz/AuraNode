@@ -271,7 +271,7 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filtered.map(({ report, caseTitle, patientReference, caseStatus }) => (
+                {filtered.map(({ report, caseTitle, patientReference, caseStatus, casePriority }) => (
                   <tr key={report.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 min-w-0">
@@ -309,7 +309,7 @@ export default function ReportsPage() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => handleDownload({ report, caseTitle, patientReference, caseStatus, casePriority: "" })}
+                          onClick={() => handleDownload({ report, caseTitle, patientReference, caseStatus, casePriority })}
                           disabled={downloadingId === report.id}
                           className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-60 transition-colors"
                           title="Download PDF"
@@ -341,7 +341,7 @@ export default function ReportsPage() {
 
           {/* Mobile cards */}
           <div className="md:hidden divide-y divide-border">
-            {filtered.map(({ report, caseTitle, patientReference, caseStatus }) => (
+            {filtered.map(({ report, caseTitle, patientReference, caseStatus, casePriority }) => (
               <div key={report.id} className="p-4 space-y-3">
                 <div className="flex items-start gap-2 min-w-0">
                   <FileText className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
@@ -375,7 +375,7 @@ export default function ReportsPage() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => handleDownload({ report, caseTitle, patientReference, caseStatus, casePriority: "" })}
+                    onClick={() => handleDownload({ report, caseTitle, patientReference, caseStatus, casePriority })}
                     disabled={downloadingId === report.id}
                     className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-60 transition-colors"
                   >

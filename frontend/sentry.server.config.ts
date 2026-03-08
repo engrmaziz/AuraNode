@@ -8,7 +8,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 Sentry.init({
   dsn: SENTRY_DSN,
 
-  // Server-side tracing — 10 % sample rate in production
+  // Server-side tracing — 10% sample rate in production
   tracesSampleRate: IS_PRODUCTION ? 0.1 : 1.0,
 
   // Only send events in production

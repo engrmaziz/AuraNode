@@ -8,10 +8,10 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 Sentry.init({
   dsn: SENTRY_DSN,
 
-  // Performance monitoring — 10 % sample rate in production, 100 % in dev
+  // Performance monitoring — 10% sample rate in production, 100% in dev
   tracesSampleRate: IS_PRODUCTION ? 0.1 : 1.0,
 
-  // Session Replay — 10 % of sessions, 100 % on errors
+  // Session Replay — 10% of sessions, 100% on errors
   replaysSessionSampleRate: IS_PRODUCTION ? 0.1 : 0,
   replaysOnErrorSampleRate: 1.0,
 
