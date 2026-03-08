@@ -55,10 +55,13 @@ class OCRService:
         """
         start = time.monotonic()
 
-        async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
-            resp = await client.get(file_url)
-            resp.raise_for_status()
-            image_bytes = resp.content
+       from services.supabase_service import supabase_service  # noqa: PLC0415
+file_url = await supabase_service.get_signed_url(file_url)
+
+async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
+    resp = await client.get(file_url)
+    resp.raise_for_status()
+    image_bytes = resp.content
 
         image = Image.open(io.BytesIO(image_bytes))
         image = self._preprocess_image(image)
@@ -105,6 +108,9 @@ class OCRService:
         """
         start = time.monotonic()
 
+from services.supabase_service import supabase_service  # noqa: PLC0415
+file_url = await supabase_service.get_signed_url(file_url)
+        
         async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
             resp = await client.get(file_url)
             resp.raise_for_status()
