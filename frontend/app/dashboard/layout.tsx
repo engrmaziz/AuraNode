@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   BarChart2,
@@ -112,22 +112,19 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, loading } = useAuth();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // While session is being determined, show a loading spinner.
-  // The middleware exclusively handles redirecting unauthenticated users to /login.
-  // This layout must NOT redirect independently — doing so would cause an infinite
-  // redirect loop. The spinner below (for both loading and !user states) serves as
-  // a brief fallback UI while the middleware-initiated redirect is in flight.
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Activity className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  // Once auth state is resolved, redirect unauthenticated users to login.
+  // Using router.replace so the dashboard URL is not added to the browser history.
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/login");
+    }
+  }, [loading, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!user) {
+  // Show a spinner while the session is being determined or while the redirect is in flight.
+  if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Activity className="h-8 w-8 animate-spin text-primary" />
