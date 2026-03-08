@@ -97,6 +97,7 @@ export interface Review {
   id: string;
   case_id: string;
   specialist_id: string;
+  specialist_name: string | null;
   notes: string | null;
   decision: ReviewDecision | null;
   risk_assessment: string | null;
@@ -104,6 +105,37 @@ export interface Review {
   reviewed_at: string;
   // Joined
   specialist?: Pick<User, "id" | "email" | "full_name">;
+}
+
+export interface ReviewQueueItem {
+  id: string;
+  clinic_id: string;
+  title: string;
+  description: string | null;
+  patient_reference: string | null;
+  status: CaseStatus;
+  priority: CasePriority;
+  assigned_specialist_id: string | null;
+  created_at: string;
+  updated_at: string;
+  file_count: number;
+  analysis: AnalysisResult | null;
+}
+
+export interface ReviewCreate {
+  case_id: string;
+  notes: string;
+  decision: ReviewDecision;
+  risk_assessment?: string;
+  recommendations?: string;
+}
+
+export interface ReviewSummary {
+  total_reviews: number;
+  approved: number;
+  rejected: number;
+  needs_more_info: number;
+  average_review_time_hours: number;
 }
 
 export interface Report {
