@@ -12,6 +12,8 @@ import {
   User,
   RefreshCw,
   ChevronDown,
+  ExternalLink,
+  FilePlus,
 } from "lucide-react";
 import { StatusBadge } from "@/components/cases/StatusBadge";
 import { OCRStatus } from "@/components/analysis/OCRStatus";
@@ -22,7 +24,7 @@ import { CaseTimeline } from "@/components/cases/CaseTimeline";
 import { useCase } from "@/hooks/useCases";
 import { useAuth } from "@/hooks/useAuth";
 import { get, post, put } from "@/lib/api-client";
-import type { AnalysisResult, CaseStatus, TimelineEvent } from "@/types";
+import type { AnalysisResult, CaseStatus, Report, TimelineEvent } from "@/types";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -403,6 +405,204 @@ function StatusActions({
   );
 }
 
+// ─── Report tab content ───────────────────────────────────────
+
+function ReportTab({ caseId, caseStatus }: { caseId: string; caseStatus: string }) {
+  const { user } = useAuth();
+  const canGenerate = user?.role === "admin" || user?.role === "specialist";
+
+  const [report, setReport] = useState<Report | null>(null);
+  const [loadingReport, setLoadingReport] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchReport = useCallback(async () => {
+    setLoadingReport(true);
+    setError(null);
+    try {
+      const reports = await get<Report[]>(`/api/v1/reports/${caseId}`);
+      setReport(reports.length > 0 ? reports[0] : null);
+    } catch {
+      setReport(null);
+    } finally {
+      setLoadingReport(false);
+    }
+  }, [caseId]);
+
+  useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const newReport = await post<Report>(`/api/v1/reports/${caseId}`);
+      setReport(newReport);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to generate report.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!report) return;
+    try {
+      const a = document.createElement("a");
+      a.href = `/api/v1/reports/${caseId}/download/${report.id}`;
+      a.download = `auranode-report-${caseId}.pdf`;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      setError("Download failed. Please try again.");
+    }
+  };
+
+  if (loadingReport) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Report exists — show it
+  if (report) {
+    return (
+      <div className="space-y-5">
+        <div className="rounded-xl border border-border bg-white dark:bg-gray-900 p-6 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+              <FileText className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm">Diagnostic Analysis Report</p>
+              <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                ID: {report.id.slice(0, 8)}…
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-1.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 flex-shrink-0" />
+              <span>
+                Generated:{" "}
+                <span className="text-foreground font-medium">
+                  {new Date(report.generated_at).toLocaleString()}
+                </span>
+              </span>
+            </div>
+            {report.generated_by && (
+              <div className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>
+                  By:{" "}
+                  <span className="text-foreground font-mono">
+                    {report.generated_by.slice(0, 8)}…
+                  </span>
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
+            >
+              <Download className="h-4 w-4" />
+              Download PDF
+            </button>
+            <a
+              href={report.report_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              <ExternalLink className="h-4 w-4" />
+              View Report
+            </a>
+            {canGenerate && (
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={generating}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-accent disabled:opacity-60 transition-colors"
+              >
+                {generating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Regenerate
+              </button>
+            )}
+          </div>
+        </div>
+
+        {error && (
+          <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-4 text-sm text-red-700 dark:text-red-400">
+            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <p>{error}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // No report yet
+  return (
+    <div className="space-y-5">
+      {error && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-4 text-sm text-red-700 dark:text-red-400">
+          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <p>{error}</p>
+        </div>
+      )}
+
+      <div className="py-16 text-center">
+        <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
+        {canGenerate ? (
+          <div className="space-y-3">
+            <p className="font-medium text-sm">No report generated yet</p>
+            <p className="text-xs text-muted-foreground">
+              {caseStatus !== "completed"
+                ? "Reports can only be generated for completed cases."
+                : "Generate a PDF report with all analysis findings and specialist reviews."}
+            </p>
+            {caseStatus === "completed" && (
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={generating}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-5 py-2.5 text-sm font-medium hover:bg-primary/90 disabled:opacity-60 transition-colors"
+              >
+                {generating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FilePlus className="h-4 w-4" />
+                )}
+                {generating ? "Generating…" : "Generate Report"}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <p className="font-medium text-sm">Report not yet available</p>
+            <p className="text-xs text-muted-foreground">
+              A report will appear here once a specialist has completed their review.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Timeline tab content ─────────────────────────────────────
 
 function TimelineTab({ caseId }: { caseId: string }) {
@@ -679,9 +879,7 @@ export default function CaseDetailPage({
 
           {/* Report tab */}
           {activeTab === "report" && (
-            <div className="py-16 text-center text-muted-foreground">
-              <p className="font-medium">Generated reports will appear here once analysis is complete.</p>
-            </div>
+            <ReportTab caseId={id} caseStatus={caseData.status} />
           )}
         </div>
       </div>
