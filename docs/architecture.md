@@ -34,7 +34,7 @@ AuraNode is a cloud-native SaaS platform for AI-powered diagnostic image analysi
 │                           API GATEWAY LAYER                                  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                  FastAPI Backend (Railway)                             │  │
+│  │                  FastAPI Backend (Render)                              │  │
 │  │                                                                        │  │
 │  │  CORSMiddleware │ Sentry Integration │ HTTPBearer Auth Middleware      │  │
 │  │                                                                        │  │
@@ -216,10 +216,10 @@ CREATE POLICY "admin_all_cases" ON public.cases
 │       │                           Edge Network          │
 │       │                           *.vercel.app          │
 │       │                                                 │
-│       └──── GitHub Actions ────► Railway (Backend)      │
+│       └──── GitHub Actions ────► Render (Backend)        │
 │             backend-deploy.yml    FastAPI + Uvicorn      │
 │                                   Docker container       │
-│                                   *.railway.app          │
+│                                   *.onrender.com         │
 │                                         │               │
 │                                         │               │
 │                               ┌─────────▼──────────┐    │
@@ -237,7 +237,7 @@ CREATE POLICY "admin_all_cases" ON public.cases
 |---------|----------|----------------|
 | Frontend | `NEXT_PUBLIC_SUPABASE_URL` | Supabase > Settings > API |
 | Frontend | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase > Settings > API |
-| Frontend | `NEXT_PUBLIC_API_URL` | Your Railway deployment URL |
+| Frontend | `NEXT_PUBLIC_API_URL` | Your Render deployment URL |
 | Backend | `SUPABASE_URL` | Supabase > Settings > API |
 | Backend | `SUPABASE_SERVICE_KEY` | Supabase > Settings > API (service_role) |
 | Backend | `SUPABASE_JWT_SECRET` | Supabase > Settings > API > JWT Settings |
@@ -252,6 +252,6 @@ CREATE POLICY "admin_all_cases" ON public.cases
 | Supabase (BaaS) | Firebase, custom Postgres | Built-in RLS, Auth, Storage — reduces infra complexity |
 | HuggingFace free tier | OpenAI GPT, custom model | Zero cost, zero-shot classification sufficient for Phase 1 |
 | ReportLab (PDF) | WeasyPrint, Puppeteer | Pure Python, no browser dependency, production-battle-tested |
-| Railway (backend) | AWS ECS, Fly.io | Dockerfile auto-detect, free tier, simple secret management |
+| Render (backend) | AWS ECS, Fly.io | Dockerfile auto-detect, free tier, simple secret management |
 | Vercel (frontend) | Netlify, Cloudflare Pages | Best Next.js support, Edge network, instant preview deploys |
 | Tesseract OCR | AWS Textract, Google Vision | Free, offline-capable, no vendor lock-in |
