@@ -94,8 +94,7 @@ export default function RegisterPage() {
         }
       }
 
-      router.push("/dashboard");
-      router.refresh();
+      router.replace("/dashboard");
     } catch {
       setServerError("An unexpected error occurred. Please try again.");
     } finally {
