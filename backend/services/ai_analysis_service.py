@@ -1,6 +1,7 @@
 """AI analysis service — Vision AI and text analysis via Hugging Face Inference API."""
 import asyncio
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
@@ -14,10 +15,10 @@ logger = logging.getLogger(__name__)
 # ─── Constants ───────────────────────────────────────────────────────────────
 
 TEXT_CLASSIFICATION_LABELS = [
-    "normal findings",
-    "abnormal findings",
-    "critical findings",
-    "requires urgent attention",
+    "all values within normal range",
+    "one or more values slightly outside normal range",
+    "multiple abnormal values requiring attention",
+    "critical values requiring immediate medical attention",
 ]
 
 ABNORMALITY_LABELS = TEXT_CLASSIFICATION_LABELS  # backward compat alias
@@ -142,6 +143,7 @@ class AIAnalysisService:
 
             risk_score: float = findings["risk_score"]
             flagged_status: bool = findings["flagged_status"]
+            confidence_score: float = findings.get("confidence_score", risk_score)
 
             await supabase_service.update_analysis_result(
                 analysis_id=analysis_id,
@@ -149,6 +151,7 @@ class AIAnalysisService:
                 flagged_status=flagged_status,
                 ai_findings=findings,
                 model_version=MODEL_VERSION,
+                confidence_score=confidence_score,
             )
 
             new_status = "flagged" if flagged_status else "completed"
@@ -179,11 +182,121 @@ class AIAnalysisService:
                 "AI analysis pipeline failed for case=%s: %s", case_id, exc, exc_info=True
             )
 
+    # ─── Rule-Based Pre-Analysis ─────────────────────────────────────────────
+
+    def _rule_based_analysis(self, text: str) -> dict:
+        """
+        Extract explicit abnormal flags from OCR text.
+        Lab reports typically print 'Low', 'High', 'Borderline', 'Critical',
+        'Abnormal', 'Positive' next to out-of-range values.
+        Returns: {
+            "flags": list of abnormal findings found,
+            "risk_score": float 0.0-1.0,
+            "flagged": bool,
+            "summary": str
+        }
+        """
+        text_upper = text.upper()
+
+        # Patterns for abnormal markers in lab reports
+        critical_patterns = [
+            r'\bCRITICAL\b', r'\bCRITICALLY\s+(LOW|HIGH)\b',
+            r'\bPANIC\b', r'\bDANGER\b', r'\bURGENT\b',
+            r'\bSEVERELY?\s+(LOW|HIGH)\b',
+        ]
+        high_risk_patterns = [
+            r'\bLOW\b', r'\bHIGH\b', r'\bABNORMAL\b',
+            r'\bPOSITIVE\b', r'\bDETECTED\b', r'\bPRESENT\b',
+            r'\bINFECTION\b', r'\bINFLAMMATION\b', r'\bANEMIA\b',
+            r'\bANAEMIA\b', r'\bFURTHER CONFIRM\b',
+        ]
+        moderate_risk_patterns = [
+            r'\bBORDERLINE\b', r'\bMILDLY?\s+(LOW|HIGH|ELEVATED|REDUCED)\b',
+            r'\bSLIGHTLY?\s+(LOW|HIGH|ELEVATED|REDUCED)\b',
+            r'\bMARGINAL\b', r'\bMONITOR\b',
+        ]
+
+        flags = []
+        risk_score = 0.0
+
+        # Count critical flags
+        critical_count = 0
+        for pattern in critical_patterns:
+            matches = re.findall(pattern, text_upper)
+            if matches:
+                critical_count += len(matches)
+                flags.append(f"CRITICAL marker found ({len(matches)}x)")
+
+        # Count high risk flags
+        high_count = 0
+        for pattern in high_risk_patterns:
+            matches = re.findall(pattern, text_upper)
+            if matches:
+                high_count += len(matches)
+
+        # Count moderate flags
+        moderate_count = 0
+        for pattern in moderate_risk_patterns:
+            matches = re.findall(pattern, text_upper)
+            if matches:
+                moderate_count += len(matches)
+
+        # Add specific finding descriptions
+        if re.search(r'\bLOW\b', text_upper):
+            low_matches = re.findall(r'([A-Z][A-Za-z\s\(\)]{2,30})\s+[\d\.]+\s+Low', text, re.IGNORECASE)
+            for m in low_matches[:5]:
+                flags.append(f"Low value: {m.strip()}")
+
+        if re.search(r'\bHIGH\b', text_upper):
+            high_matches = re.findall(r'([A-Z][A-Za-z\s\(\)]{2,30})\s+[\d\.]+\s+High', text, re.IGNORECASE)
+            for m in high_matches[:5]:
+                flags.append(f"High value: {m.strip()}")
+
+        if re.search(r'\bBORDERLINE\b', text_upper):
+            border_matches = re.findall(r'([A-Z][A-Za-z\s\(\)]{2,30})\s+[\d\.]+\s+Borderline', text, re.IGNORECASE)
+            for m in border_matches[:5]:
+                flags.append(f"Borderline value: {m.strip()}")
+
+        if re.search(r'ANEMIA|ANAEMIA|FURTHER CONFIRM', text_upper):
+            flags.append("Lab interpretation suggests anemia — further confirmation recommended")
+
+        # Calculate risk score
+        if critical_count > 0:
+            risk_score = min(0.95, 0.7 + (critical_count * 0.05))
+        elif high_count >= 3:
+            risk_score = min(0.85, 0.55 + (high_count * 0.05))
+        elif high_count >= 1:
+            risk_score = min(0.75, 0.40 + (high_count * 0.08))
+        elif moderate_count >= 2:
+            risk_score = min(0.55, 0.30 + (moderate_count * 0.05))
+        elif moderate_count >= 1:
+            risk_score = 0.25
+
+        flagged = risk_score >= 0.40
+
+        if not flags:
+            summary = "No explicit abnormal markers detected by rule-based analysis."
+        else:
+            summary = f"Rule-based analysis found {len(flags)} abnormal indicator(s): {'; '.join(flags[:5])}"
+
+        return {
+            "flags": flags,
+            "risk_score": risk_score,
+            "flagged": flagged,
+            "summary": summary,
+        }
+
     # ─── Text Analysis ───────────────────────────────────────────────────────
 
     async def _analyze_text(self, extracted_text: str, case_id: UUID) -> Dict[str, Any]:
-        """Run zero-shot classification on extracted text via facebook/bart-large-mnli."""
+        """Run rule-based pre-analysis then zero-shot classification via facebook/bart-large-mnli."""
         start_ms = int(time.monotonic() * 1000)
+
+        # STEP 1: Rule-based pre-analysis (always runs first)
+        rule_result = self._rule_based_analysis(extracted_text)
+        rule_risk = rule_result["risk_score"]
+        rule_flagged = rule_result["flagged"]
+
         truncated = extracted_text[:_TEXT_TRUNCATE_CHARS]
         payload = {
             "inputs": truncated,
@@ -193,61 +306,103 @@ class AIAnalysisService:
             },
         }
 
+        # Medically relevant label → risk score mapping
+        label_risk_weights: Dict[str, float] = {
+            "all values within normal range": 0.05,
+            "one or more values slightly outside normal range": 0.25,
+            "multiple abnormal values requiring attention": 0.55,
+            "critical values requiring immediate medical attention": 0.85,
+        }
+
+        hf_classification_result = "HuggingFace classification unavailable."
+        hf_risk = 0.0
+        hf_flagged = False
+        label_scores: Dict[str, float] = {}
+        labels: List[str] = []
+        scores: List[float] = []
+
         try:
+            # STEP 2: HuggingFace zero-shot classification
             raw = await self._call_hf_text_api(_HF_TEXT_MODEL, payload)
-            labels: List[str] = raw.get("labels", [])
-            scores: List[float] = raw.get("scores", [])
+            labels = raw.get("labels", [])
+            scores = raw.get("scores", [])
             label_scores = dict(zip(labels, scores))
             top_label = labels[0] if labels else "inconclusive"
             top_score = scores[0] if scores else 0.0
 
-            label_risk_weights: Dict[str, float] = {
-                "critical findings": 1.0,
-                "requires urgent attention": 0.9,
-                "abnormal findings": 0.65,
-                "normal findings": 0.1,
-            }
-            risk_score = round(
-                min(
-                    sum(label_scores.get(lbl, 0.0) * w for lbl, w in label_risk_weights.items()),
-                    1.0,
-                ),
-                4,
-            )
+            # STEP 3: Map top label to HF risk score
+            hf_risk = label_risk_weights.get(top_label, 0.0)
+            hf_flagged = hf_risk >= 0.40
 
-            flagged = top_label in ("critical findings", "requires urgent attention") and top_score > 0.6
-            processing_time_ms = int(time.monotonic() * 1000) - start_ms
-            summary = (
-                f"Text analysis: {top_label} (confidence {top_score:.1%}). "
-                f"Risk score: {risk_score:.2f}."
+            risk_label = (
+                "Critical" if hf_risk >= 0.75
+                else "High" if hf_risk >= 0.50
+                else "Moderate" if hf_risk >= 0.30
+                else "Low"
+            )
+            hf_classification_result = (
+                f"{top_label} (confidence {top_score:.1%})"
             )
 
             logger.info(
-                "Text analysis: case=%s top_label=%s score=%.3f risk=%.3f flagged=%s",
-                case_id, top_label, top_score, risk_score, flagged,
+                "Text analysis (HF): case=%s top_label=%s score=%.3f hf_risk=%.3f",
+                case_id, top_label, top_score, hf_risk,
             )
-
-            return {
-                "analysis_type": "text",
-                "risk_score": risk_score,
-                "flagged_status": flagged,
-                "detected_category": top_label,
-                "category_confidence": round(top_score, 4),
-                "confidence_breakdown": {k: round(v, 4) for k, v in label_scores.items()},
-                "analysis_summary": summary,
-                "summary": summary,
-                "model_version": MODEL_VERSION,
-                "processing_time_ms": processing_time_ms,
-                "anomalies": [summary] if flagged else [],
-                "recommendations": _build_recommendations(risk_score, flagged),
-            }
 
         except Exception as exc:
             logger.warning(
-                "HuggingFace text API failed for case=%s: %s — using keyword fallback",
+                "HuggingFace text API failed for case=%s: %s — using rule-based result only",
                 case_id, exc,
             )
-            return self._keyword_fallback_analysis(extracted_text)
+            risk_label = (
+                "Critical" if rule_risk >= 0.75
+                else "High" if rule_risk >= 0.50
+                else "Moderate" if rule_risk >= 0.30
+                else "Low"
+            )
+
+        # STEP 4: Combine scores — take the max to avoid under-reporting
+        risk_score = round(max(rule_risk, hf_risk), 4)
+        flagged = rule_flagged or hf_flagged
+        processing_time_ms = int(time.monotonic() * 1000) - start_ms
+
+        # STEP 5: Build combined ai_findings text
+        rule_flags_text = "; ".join(rule_result["flags"]) if rule_result["flags"] else "none"
+        summary = (
+            f"[Rule-based analysis]: {rule_result['summary']}\n"
+            f"[AI classification]: {hf_classification_result}\n"
+            f"Risk level: {risk_label}\n"
+            f"⚠️ {_AI_DISCLAIMER}"
+        )
+
+        logger.info(
+            "Text analysis combined: case=%s rule_risk=%.3f hf_risk=%.3f "
+            "final_risk=%.3f flagged=%s",
+            case_id, rule_risk, hf_risk, risk_score, flagged,
+        )
+
+        return {
+            "analysis_type": "text",
+            "risk_score": risk_score,
+            "confidence_score": risk_score,
+            "flagged_status": flagged,
+            "detected_category": (
+                labels[0] if label_scores else rule_result["summary"]
+            ),
+            "category_confidence": round(
+                (scores[0] if label_scores else rule_risk), 4
+            ),
+            "confidence_breakdown": {k: round(v, 4) for k, v in label_scores.items()},
+            "rule_based_flags": rule_result["flags"],
+            "analysis_summary": summary,
+            "summary": summary,
+            "model_version": MODEL_VERSION,
+            "processing_time_ms": processing_time_ms,
+            "anomalies": [f"Flag: {f}" for f in rule_result["flags"]] or (
+                [summary] if flagged else []
+            ),
+            "recommendations": _build_recommendations(risk_score, flagged),
+        }
 
     # ─── Image Analysis ──────────────────────────────────────────────────────
 
@@ -434,38 +589,36 @@ class AIAnalysisService:
     # ─── Fallback Analysis ───────────────────────────────────────────────────
 
     def _keyword_fallback_analysis(self, text: str) -> Dict[str, Any]:
-        """Keyword-based analysis used when HuggingFace text API is unavailable."""
+        """Fallback analysis used when HuggingFace text API is unavailable.
+
+        Delegates to _rule_based_analysis so that explicit Low/High/Borderline/Critical
+        flags in the OCR text are never silently mapped to 0% risk.
+        """
         start_ms = int(time.monotonic() * 1000)
-        classification = self._keyword_zero_shot_fallback(text)
-        entities = self._keyword_ner_fallback(text)
-        risk_score = self._calculate_keyword_risk_score(classification, entities, text)
-        detected_category = classification.get("top_label", "inconclusive")
-        category_confidence = classification.get("top_score", 0.0)
-        critical_keywords_found = self._find_critical_keywords(text, entities)
-        flagged_status = self._determine_flagged(
-            risk_score, detected_category, category_confidence, critical_keywords_found
-        )
-        summary = (
-            f"Fallback keyword analysis: {detected_category}. "
-            f"Risk score: {risk_score:.2f}. "
-            f"Critical keywords: {', '.join(critical_keywords_found) or 'none'}."
-        )
+        rule_result = self._rule_based_analysis(text)
+        risk_score = round(rule_result["risk_score"], 4)
+        flagged_status = rule_result["flagged"]
+        summary = rule_result["summary"]
         processing_time_ms = int(time.monotonic() * 1000) - start_ms
         return {
             "analysis_type": "text_fallback",
             "risk_score": risk_score,
+            "confidence_score": risk_score,
             "flagged_status": flagged_status,
-            "detected_category": detected_category,
-            "category_confidence": round(category_confidence, 4),
-            "extracted_entities": entities,
-            "critical_keywords_found": critical_keywords_found,
+            "detected_category": "rule_based",
+            "category_confidence": round(risk_score, 4),
+            "extracted_entities": [],
+            "critical_keywords_found": rule_result["flags"],
+            "rule_based_flags": rule_result["flags"],
             "analysis_summary": summary,
-            "model_version": f"{MODEL_VERSION}-keyword-fallback",
+            "model_version": f"{MODEL_VERSION}-rule-based-fallback",
             "processing_time_ms": processing_time_ms,
             "summary": summary,
-            "anomalies": [summary] if flagged_status else [],
+            "anomalies": [f"Flag: {f}" for f in rule_result["flags"]] or (
+                [summary] if flagged_status else []
+            ),
             "recommendations": _build_recommendations(risk_score, flagged_status),
-            "confidence_breakdown": classification.get("label_scores", {}),
+            "confidence_breakdown": {},
         }
 
     def _keyword_zero_shot_fallback(self, text: str) -> Dict[str, Any]:
