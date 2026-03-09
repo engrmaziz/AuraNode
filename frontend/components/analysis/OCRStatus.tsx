@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { CheckCircle, XCircle, Loader2, Clock } from "lucide-react";
 import { get, post } from "@/lib/api-client";
 import { useInterval } from "@/hooks/useInterval";
@@ -13,19 +13,29 @@ interface OCRStatusProps {
 }
 
 const POLL_INTERVAL_MS = 3000;
+const TERMINAL_STATUSES = ["completed", "failed", "error"];
 
 export function OCRStatus({ caseId, onComplete }: OCRStatusProps) {
   const [statusData, setStatusData] = useState<OCRStatusType | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const isTerminal =
-    statusData?.status === "completed" || statusData?.status === "failed";
+    statusData?.status != null && TERMINAL_STATUSES.includes(statusData.status);
 
   const poll = useCallback(async () => {
     try {
       const data = await get<OCRStatusType>(
         `/api/v1/analysis/case/${caseId}/status`
       );
+      if (!isMounted.current) return;
       setStatusData(data);
 
       if (data.status === "completed") {
@@ -35,6 +45,11 @@ export function OCRStatus({ caseId, onComplete }: OCRStatusProps) {
       // Silently ignore transient errors during polling
     }
   }, [caseId, onComplete]);
+
+  // Fetch immediately on mount so we don't wait for the first interval tick
+  useEffect(() => {
+    poll();
+  }, [poll]);
 
   // Poll every 3 s; stop when terminal state reached
   useInterval(poll, isTerminal ? null : POLL_INTERVAL_MS);

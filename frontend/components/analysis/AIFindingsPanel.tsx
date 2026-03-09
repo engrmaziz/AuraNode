@@ -1,11 +1,13 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { AlertTriangle, Loader2, AlertCircle } from "lucide-react";
+import { get } from "@/lib/api-client";
 import { RiskScoreDisplay } from "./RiskScoreDisplay";
 import type { AnalysisResult, AIFindings } from "@/types";
 
 interface AIFindingsPanelProps {
-  findings: AnalysisResult;
+  caseId: string;
 }
 
 function CategoryBadge({ category }: { category: string }) {
@@ -41,7 +43,64 @@ function KeywordTag({ keyword }: { keyword: string }) {
   );
 }
 
-export function AIFindingsPanel({ findings }: AIFindingsPanelProps) {
+export function AIFindingsPanel({ caseId }: AIFindingsPanelProps) {
+  const [findings, setFindings] = useState<AnalysisResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchFindings = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const results = await get<AnalysisResult[]>(`/api/v1/analysis/case/${caseId}`);
+        if (!cancelled) {
+          setFindings(results.length > 0 ? results[0] : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Failed to load analysis findings.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    fetchFindings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [caseId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+        <span>Loading AI findings…</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-4 text-sm text-red-700 dark:text-red-400">
+        <AlertCircle className="h-4 w-4 flex-shrink-0" />
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  if (!findings) {
+    return (
+      <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+        No findings available.
+      </div>
+    );
+  }
+
   const riskScore = findings.risk_score ?? 0;
   const flaggedStatus = findings.flagged_status ?? false;
 
