@@ -1,7 +1,6 @@
 """AI analysis service — Vision AI and text analysis via Hugging Face Inference API."""
 import asyncio
 import logging
-import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
@@ -14,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-# Zero-shot classification labels for text analysis
 TEXT_CLASSIFICATION_LABELS = [
     "normal findings",
     "abnormal findings",
@@ -22,47 +20,44 @@ TEXT_CLASSIFICATION_LABELS = [
     "requires urgent attention",
 ]
 
-# Kept for fallback keyword matching
-ABNORMALITY_LABELS = TEXT_CLASSIFICATION_LABELS  # alias for backward compatibility
+ABNORMALITY_LABELS = TEXT_CLASSIFICATION_LABELS  # backward compat alias
 
-# Keywords that boost risk score when found in extracted text
 CRITICAL_KEYWORDS: List[str] = [
-    "critical",
-    "severe",
-    "emergency",
-    "urgent",
-    "abnormal",
-    "elevated",
-    "decreased",
-    "irregular",
+    "critical", "severe", "emergency", "urgent",
+    "abnormal", "elevated", "decreased", "irregular",
 ]
 
 # HuggingFace model identifiers
 _HF_TEXT_MODEL = "facebook/bart-large-mnli"
-_HF_IMAGE_MODEL = "Lsh/chest-xray-pneumonia-classification"
+
+# ViT model trained on CheXpert — classifies into:
+# Cardiomegaly, Edema, Consolidation, Pneumonia, No Finding
+_HF_IMAGE_MODEL = "codewithdark/vit-chest-xray"
+
+# Labels from this model that indicate abnormality (anything not "No Finding")
+_ABNORMAL_IMAGE_LABELS = {"cardiomegaly", "edema", "consolidation", "pneumonia"}
+# Labels that warrant immediate flagging
+_CRITICAL_IMAGE_LABELS = {"pneumonia", "consolidation"}
 
 _HF_BASE_URL = "https://api-inference.huggingface.co/models"
 
-# Keyword subsets used in fallback classification
 _CRITICAL_SEVERITY_KEYWORDS: List[str] = ["critical", "severe", "emergency", "urgent"]
 _ABNORMAL_VALUE_KEYWORDS: List[str] = ["abnormal", "elevated", "decreased", "irregular"]
 _NORMAL_INDICATOR_KEYWORDS: List[str] = ["normal", "within range", "unremarkable", "no evidence"]
 
-_REQUEST_TIMEOUT = 30
-_MAX_RETRIES = 2  # 2 retries as required (try up to 2 times after initial attempt)
-_HF_503_WAIT_SECONDS = 20
+_REQUEST_TIMEOUT = 60       # increased for cold-start model loading
+_MAX_RETRIES = 3            # 3 retries for 503 model loading
+_HF_503_WAIT_SECONDS = 30  # wait 30s for model to load
 _TEXT_TRUNCATE_CHARS = 512
 
-# Disclaimer appended to all AI findings
 _AI_DISCLAIMER = (
     "AI-assisted preliminary analysis. Not a medical diagnosis. "
     "Requires specialist review."
 )
 
-# Minimum word count to use text analysis instead of image analysis
 _MIN_TEXT_ANALYSIS_WORD_COUNT = 20
 
-MODEL_VERSION = "ai-v3.0.0"
+MODEL_VERSION = "ai-v3.1.0"
 
 
 class AIAnalysisService:
@@ -75,20 +70,12 @@ class AIAnalysisService:
     # ─── Public API ──────────────────────────────────────────────────────────
 
     async def analyze_case(self, case_id: UUID) -> None:
-        """Orchestrate end-to-end AI analysis for a case after OCR completes.
-
-        Decision logic:
-        - Fetch the existing analysis result (created by OCR pipeline).
-        - If extracted_text has more than 20 words → run text analysis.
-        - Else → download first case file and run image analysis.
-        - Persist findings and update case status.
-        """
+        """Orchestrate end-to-end AI analysis for a case after OCR completes."""
         from services.supabase_service import supabase_service  # noqa: PLC0415
 
         logger.info("AI analysis starting: case=%s", case_id)
 
         try:
-            # Fetch existing analysis record created by OCR
             analysis_record = await supabase_service.get_analysis_result(
                 case_id=str(case_id)
             )
@@ -102,35 +89,25 @@ class AIAnalysisService:
 
             logger.info(
                 "AI analysis: case=%s analysis_id=%s word_count=%d",
-                case_id,
-                analysis_id,
-                word_count,
+                case_id, analysis_id, word_count,
             )
 
             if word_count > _MIN_TEXT_ANALYSIS_WORD_COUNT:
-                # ── Text path ────────────────────────────────────────────────
                 logger.info("case=%s: using text analysis (%d words)", case_id, word_count)
                 findings = await self._analyze_text(extracted_text, case_id)
             else:
-                # ── Image path ───────────────────────────────────────────────
                 logger.info(
                     "case=%s: word_count=%d ≤ %d → attempting image analysis",
-                    case_id,
-                    word_count,
-                    _MIN_TEXT_ANALYSIS_WORD_COUNT,
+                    case_id, word_count, _MIN_TEXT_ANALYSIS_WORD_COUNT,
                 )
                 image_bytes: Optional[bytes] = None
 
-                # Try to get image bytes from the first case file
                 try:
-                    case_files = await supabase_service.list_case_files(
-                        case_id=str(case_id)
-                    )
+                    case_files = await supabase_service.list_case_files(case_id=str(case_id))
                     if case_files:
                         first_file = case_files[0]
                         file_url: str = first_file.file_url or ""
                         if file_url:
-                            # Extract storage path from public URL
                             storage_path = _extract_storage_path(file_url)
                             signed_url = await supabase_service.get_signed_url(
                                 storage_path=storage_path
@@ -140,10 +117,8 @@ class AIAnalysisService:
                                 resp.raise_for_status()
                                 image_bytes = resp.content
                             logger.info(
-                                "case=%s: downloaded %d bytes from %s",
-                                case_id,
-                                len(image_bytes),
-                                file_url,
+                                "case=%s: downloaded %d bytes from storage",
+                                case_id, len(image_bytes),
                             )
                         else:
                             logger.warning("case=%s: first file has no URL", case_id)
@@ -151,9 +126,7 @@ class AIAnalysisService:
                         logger.warning("case=%s: no case files found for image analysis", case_id)
                 except Exception as exc:
                     logger.warning(
-                        "case=%s: failed to download file for image analysis: %s",
-                        case_id,
-                        exc,
+                        "case=%s: failed to download file for image analysis: %s", case_id, exc
                     )
 
                 if image_bytes:
@@ -165,7 +138,6 @@ class AIAnalysisService:
                     )
                     findings = _manual_review_findings()
 
-            # Attach disclaimer
             findings["disclaimer"] = _AI_DISCLAIMER
 
             risk_score: float = findings["risk_score"]
@@ -186,10 +158,7 @@ class AIAnalysisService:
 
             logger.info(
                 "AI analysis complete: case=%s risk=%.3f flagged=%s status=%s",
-                case_id,
-                risk_score,
-                flagged_status,
-                new_status,
+                case_id, risk_score, flagged_status, new_status,
             )
 
             await supabase_service.log_audit(
@@ -213,11 +182,7 @@ class AIAnalysisService:
     # ─── Text Analysis ───────────────────────────────────────────────────────
 
     async def _analyze_text(self, extracted_text: str, case_id: UUID) -> Dict[str, Any]:
-        """Run zero-shot classification on extracted text.
-
-        Uses facebook/bart-large-mnli.
-        Falls back to keyword analysis if HuggingFace is unavailable after retries.
-        """
+        """Run zero-shot classification on extracted text via facebook/bart-large-mnli."""
         start_ms = int(time.monotonic() * 1000)
         truncated = extracted_text[:_TEXT_TRUNCATE_CHARS]
         payload = {
@@ -236,7 +201,6 @@ class AIAnalysisService:
             top_label = labels[0] if labels else "inconclusive"
             top_score = scores[0] if scores else 0.0
 
-            # risk_score derived from confidence of top label
             label_risk_weights: Dict[str, float] = {
                 "critical findings": 1.0,
                 "requires urgent attention": 0.9,
@@ -245,17 +209,13 @@ class AIAnalysisService:
             }
             risk_score = round(
                 min(
-                    sum(
-                        label_scores.get(lbl, 0.0) * w
-                        for lbl, w in label_risk_weights.items()
-                    ),
+                    sum(label_scores.get(lbl, 0.0) * w for lbl, w in label_risk_weights.items()),
                     1.0,
                 ),
                 4,
             )
 
             flagged = top_label in ("critical findings", "requires urgent attention") and top_score > 0.6
-
             processing_time_ms = int(time.monotonic() * 1000) - start_ms
             summary = (
                 f"Text analysis: {top_label} (confidence {top_score:.1%}). "
@@ -263,12 +223,8 @@ class AIAnalysisService:
             )
 
             logger.info(
-                "Text analysis: case=%s top_label=%s top_score=%.3f risk=%.3f flagged=%s",
-                case_id,
-                top_label,
-                top_score,
-                risk_score,
-                flagged,
+                "Text analysis: case=%s top_label=%s score=%.3f risk=%.3f flagged=%s",
+                case_id, top_label, top_score, risk_score, flagged,
             )
 
             return {
@@ -288,19 +244,18 @@ class AIAnalysisService:
 
         except Exception as exc:
             logger.warning(
-                "HuggingFace text API failed for case=%s after retries: %s — using keyword fallback",
-                case_id,
-                exc,
+                "HuggingFace text API failed for case=%s: %s — using keyword fallback",
+                case_id, exc,
             )
             return self._keyword_fallback_analysis(extracted_text)
 
     # ─── Image Analysis ──────────────────────────────────────────────────────
 
     async def _analyze_image(self, image_bytes: bytes, case_id: UUID) -> Dict[str, Any]:
-        """Run image classification on raw image bytes.
+        """Run image classification via codewithdark/vit-chest-xray.
 
-        Uses nickmuchi/vit-finetuned-chest-xray-pneumonia.
-        Falls back to requires_manual_review on persistent API failure.
+        Returns labels: Cardiomegaly, Edema, Consolidation, Pneumonia, No Finding
+        Falls back to requires_manual_review on API failure.
         """
         start_ms = int(time.monotonic() * 1000)
 
@@ -310,43 +265,58 @@ class AIAnalysisService:
             if not isinstance(raw, list) or not raw:
                 raise ValueError(f"Unexpected image classification response: {raw!r}")
 
-            # raw = [{"label": "PNEUMONIA", "score": 0.87}, {"label": "NORMAL", "score": 0.13}]
+            # raw = [{"label": "Pneumonia", "score": 0.87}, {"label": "No Finding", "score": 0.13}, ...]
             top_item: Dict[str, Any] = raw[0]
-            top_label: str = str(top_item.get("label", "UNKNOWN")).upper()
+            top_label: str = str(top_item.get("label", "UNKNOWN"))
             top_score: float = float(top_item.get("score", 0.0))
+            top_label_lower = top_label.lower()
 
-            if top_label == "NORMAL":
-                risk_score = 0.1
+            # Risk scoring
+            if top_label_lower == "no finding":
+                risk_score = round(0.05 + (1 - top_score) * 0.2, 4)  # near-zero risk
+            elif top_label_lower in _CRITICAL_IMAGE_LABELS:
+                risk_score = round(min(top_score * 1.1, 1.0), 4)      # high risk
             else:
-                risk_score = round(top_score, 4)
+                risk_score = round(top_score * 0.7, 4)                 # moderate risk
 
-            flagged = top_label == "PNEUMONIA" or (top_label != "NORMAL" and top_score > 0.6)
-
-            processing_time_ms = int(time.monotonic() * 1000) - start_ms
-            summary = (
-                f"Image analysis: {top_label} detected (score {top_score:.1%}). "
-                f"Risk score: {risk_score:.2f}."
+            flagged = (
+                top_label_lower in _CRITICAL_IMAGE_LABELS and top_score > 0.5
+            ) or (
+                top_label_lower in _ABNORMAL_IMAGE_LABELS and top_score > 0.75
             )
 
+            processing_time_ms = int(time.monotonic() * 1000) - start_ms
+
             all_predictions = [
-                {"label": str(item.get("label", "")), "score": round(float(item.get("score", 0.0)), 4)}
+                {
+                    "label": str(item.get("label", "")),
+                    "score": round(float(item.get("score", 0.0)), 4),
+                }
                 for item in raw
             ]
 
+            # Build a human-readable summary
+            if top_label_lower == "no finding":
+                summary = (
+                    f"Chest X-ray analysis: No significant findings detected "
+                    f"(confidence {top_score:.1%}). Risk score: {risk_score:.2f}."
+                )
+            else:
+                summary = (
+                    f"Chest X-ray analysis: {top_label} detected "
+                    f"(confidence {top_score:.1%}). Risk score: {risk_score:.2f}."
+                )
+
             logger.info(
-                "Image analysis: case=%s top_label=%s score=%.3f risk=%.3f flagged=%s",
-                case_id,
-                top_label,
-                top_score,
-                risk_score,
-                flagged,
+                "Image analysis: case=%s label=%s score=%.3f risk=%.3f flagged=%s",
+                case_id, top_label, top_score, risk_score, flagged,
             )
 
             return {
                 "analysis_type": "image",
                 "risk_score": risk_score,
                 "flagged_status": flagged,
-                "detected_category": top_label.lower(),
+                "detected_category": top_label_lower,
                 "category_confidence": round(top_score, 4),
                 "predictions": all_predictions,
                 "analysis_summary": summary,
@@ -359,22 +329,18 @@ class AIAnalysisService:
 
         except Exception as exc:
             logger.warning(
-                "HuggingFace image API failed for case=%s after retries: %s — marking requires_manual_review",
-                case_id,
-                exc,
+                "HuggingFace image API failed for case=%s: %s — marking requires_manual_review",
+                case_id, exc,
             )
             return _manual_review_findings()
 
     # ─── HuggingFace API Helpers ─────────────────────────────────────────────
 
     async def _call_hf_text_api(self, model: str, payload: Dict[str, Any]) -> Any:
-        """POST JSON payload to HuggingFace Inference API with retry logic.
-
-        Handles 503 (model loading) by waiting 20 s and retrying up to _MAX_RETRIES times.
-        """
+        """POST JSON to HuggingFace Inference API with 503 retry logic."""
         url = f"{_HF_BASE_URL}/{model}"
 
-        for attempt in range(1, _MAX_RETRIES + 2):  # attempts: 1, 2, 3
+        for attempt in range(1, _MAX_RETRIES + 2):
             try:
                 async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
                     response = await client.post(url, headers=self._headers, json=payload)
@@ -382,23 +348,21 @@ class AIAnalysisService:
                 if response.status_code == 503:
                     logger.warning(
                         "HF model loading (503) for %s — attempt %d/%d, waiting %ds",
-                        model,
-                        attempt,
-                        _MAX_RETRIES + 1,
-                        _HF_503_WAIT_SECONDS,
+                        model, attempt, _MAX_RETRIES + 1, _HF_503_WAIT_SECONDS,
                     )
                     if attempt <= _MAX_RETRIES:
                         await asyncio.sleep(_HF_503_WAIT_SECONDS)
                     continue
 
+                if response.status_code in (404, 410):
+                    raise RuntimeError(
+                        f"HuggingFace model '{model}' is unavailable "
+                        f"(HTTP {response.status_code}). Update _HF_TEXT_MODEL."
+                    )
+
                 if response.status_code == 400:
                     inputs = payload.get("inputs", "")
                     if isinstance(inputs, str) and len(inputs) > _TEXT_TRUNCATE_CHARS:
-                        logger.warning(
-                            "HF 400 — truncating input from %d to %d chars for retry",
-                            len(inputs),
-                            _TEXT_TRUNCATE_CHARS,
-                        )
                         payload = {**payload, "inputs": inputs[:_TEXT_TRUNCATE_CHARS]}
                         continue
                     response.raise_for_status()
@@ -406,31 +370,26 @@ class AIAnalysisService:
                 response.raise_for_status()
                 data = response.json()
                 if not data:
-                    raise ValueError("Empty response from HuggingFace API")
+                    raise ValueError("Empty response from HuggingFace text API")
                 return data
 
             except httpx.TimeoutException:
                 logger.warning(
-                    "HF API timeout on attempt %d/%d for model %s",
-                    attempt,
-                    _MAX_RETRIES + 1,
-                    model,
+                    "HF text API timeout attempt %d/%d for %s",
+                    attempt, _MAX_RETRIES + 1, model,
                 )
                 if attempt > _MAX_RETRIES:
                     raise
 
         raise RuntimeError(
-            f"HuggingFace text API call failed after {_MAX_RETRIES + 1} attempts for model {model}"
+            f"HuggingFace text API failed after {_MAX_RETRIES + 1} attempts for {model}"
         )
 
     async def _call_hf_image_api(self, model: str, image_bytes: bytes) -> Any:
-        """POST raw image bytes to HuggingFace Inference API for image classification.
-
-        Handles 503 (model loading) by waiting 20 s and retrying up to _MAX_RETRIES times.
-        """
+        """POST raw image bytes to HuggingFace Inference API for image classification."""
         url = f"{_HF_BASE_URL}/{model}"
 
-        for attempt in range(1, _MAX_RETRIES + 2):  # attempts: 1, 2, 3
+        for attempt in range(1, _MAX_RETRIES + 2):
             try:
                 async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
                     response = await client.post(
@@ -442,14 +401,17 @@ class AIAnalysisService:
                 if response.status_code == 503:
                     logger.warning(
                         "HF model loading (503) for %s — attempt %d/%d, waiting %ds",
-                        model,
-                        attempt,
-                        _MAX_RETRIES + 1,
-                        _HF_503_WAIT_SECONDS,
+                        model, attempt, _MAX_RETRIES + 1, _HF_503_WAIT_SECONDS,
                     )
                     if attempt <= _MAX_RETRIES:
                         await asyncio.sleep(_HF_503_WAIT_SECONDS)
                     continue
+
+                if response.status_code in (404, 410):
+                    raise RuntimeError(
+                        f"HuggingFace model '{model}' is unavailable "
+                        f"(HTTP {response.status_code}). Update _HF_IMAGE_MODEL."
+                    )
 
                 response.raise_for_status()
                 data = response.json()
@@ -459,22 +421,20 @@ class AIAnalysisService:
 
             except httpx.TimeoutException:
                 logger.warning(
-                    "HF image API timeout on attempt %d/%d for model %s",
-                    attempt,
-                    _MAX_RETRIES + 1,
-                    model,
+                    "HF image API timeout attempt %d/%d for %s",
+                    attempt, _MAX_RETRIES + 1, model,
                 )
                 if attempt > _MAX_RETRIES:
                     raise
 
         raise RuntimeError(
-            f"HuggingFace image API call failed after {_MAX_RETRIES + 1} attempts for model {model}"
+            f"HuggingFace image API failed after {_MAX_RETRIES + 1} attempts for {model}"
         )
 
     # ─── Fallback Analysis ───────────────────────────────────────────────────
 
     def _keyword_fallback_analysis(self, text: str) -> Dict[str, Any]:
-        """Pure keyword-based analysis used when HuggingFace text API is unavailable."""
+        """Keyword-based analysis used when HuggingFace text API is unavailable."""
         start_ms = int(time.monotonic() * 1000)
         classification = self._keyword_zero_shot_fallback(text)
         entities = self._keyword_ner_fallback(text)
@@ -509,7 +469,6 @@ class AIAnalysisService:
         }
 
     def _keyword_zero_shot_fallback(self, text: str) -> Dict[str, Any]:
-        """Keyword-based category detection used as fallback."""
         text_lower = text.lower()
         critical_count = sum(1 for kw in _CRITICAL_SEVERITY_KEYWORDS if kw in text_lower)
         abnormal_count = sum(1 for kw in _ABNORMAL_VALUE_KEYWORDS if kw in text_lower)
@@ -536,7 +495,6 @@ class AIAnalysisService:
 
     @staticmethod
     def _keyword_ner_fallback(text: str) -> List[Dict[str, Any]]:
-        """Extract medical terms using a simple keyword dictionary."""
         medical_terms = [
             "heart rate", "blood pressure", "spo2", "oxygen saturation",
             "temperature", "pulse", "respiration", "ecg", "ekg",
@@ -570,8 +528,7 @@ class AIAnalysisService:
         }
 
         base_score = sum(
-            label_scores.get(lbl, 0.0) * weight
-            for lbl, weight in label_weights.items()
+            label_scores.get(lbl, 0.0) * weight for lbl, weight in label_weights.items()
         )
         if not label_scores:
             base_score = label_weights.get(top_label, 0.35) * top_score
@@ -609,22 +566,11 @@ class AIAnalysisService:
 
     # ─── Legacy compatibility ─────────────────────────────────────────────────
 
-    async def analyze_extracted_text(
-        self, extracted_text: str, case_id: UUID
-    ) -> Dict[str, Any]:
-        """Backward-compatible entry point for text analysis."""
+    async def analyze_extracted_text(self, extracted_text: str, case_id: UUID) -> Dict[str, Any]:
         return await self._analyze_text(extracted_text, case_id)
 
-    async def analyze(
-        self, extracted_text: str
-    ) -> Tuple[float, bool, Dict]:
-        """Legacy entry point.
-
-        Returns:
-            (risk_score, flagged_status, ai_findings_dict)
-        """
+    async def analyze(self, extracted_text: str) -> Tuple[float, bool, Dict]:
         import uuid  # noqa: PLC0415
-
         findings = await self._analyze_text(extracted_text, uuid.uuid4())
         return (findings["risk_score"], findings["flagged_status"], findings)
 
@@ -632,7 +578,6 @@ class AIAnalysisService:
 # ─── Module-level helpers ─────────────────────────────────────────────────────
 
 def _manual_review_findings() -> Dict[str, Any]:
-    """Return a placeholder findings dict indicating manual review is required."""
     return {
         "analysis_type": "image_fallback",
         "risk_score": 0.5,
@@ -660,24 +605,12 @@ def _build_recommendations(risk_score: float, flagged: bool) -> List[str]:
 
 
 def _extract_storage_path(file_url: str) -> str:
-    """Extract the Supabase Storage path from a public URL.
-
-    e.g. https://.../storage/v1/object/public/diagnostic-uploads/clinic/case/file.jpg
-    → clinic/case/file.jpg
-
-    If the expected URL marker is not found, returns the original value and logs a warning
-    so callers can identify misconfigured file URLs.
-    """
     marker = "/object/public/diagnostic-uploads/"
     if marker in file_url:
         path = file_url.split(marker)[-1]
         return path.split("?")[0]
-    # URL does not contain the expected Supabase storage marker — treat as a raw path
     logger.warning(
-        "_extract_storage_path: URL does not contain expected marker '%s'; "
-        "returning URL as-is. URL: %.120s",
-        marker,
-        file_url,
+        "_extract_storage_path: unexpected URL format, returning as-is: %.120s", file_url
     )
     return file_url
 
