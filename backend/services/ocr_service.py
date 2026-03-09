@@ -29,6 +29,22 @@ except ImportError:
     _PDF2IMAGE_AVAILABLE = False
     logger.warning("pdf2image is not installed — PDF processing will be limited")
 
+try:
+    import pdfplumber
+
+    _PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    _PDFPLUMBER_AVAILABLE = False
+    logger.warning("pdfplumber is not installed — direct PDF text extraction unavailable")
+
+try:
+    import PyPDF2
+
+    _PYPDF2_AVAILABLE = True
+except ImportError:
+    _PYPDF2_AVAILABLE = False
+    logger.warning("PyPDF2 is not installed — PyPDF2 PDF text extraction unavailable")
+
 # ─── Constants ──────────────────────────────────────────────
 _OCR_TIMEOUT_SECONDS = 60
 _MAX_RETRIES = 3
@@ -121,10 +137,13 @@ class OCRService:
     async def process_pdf_from_url(
         self, file_url: str, case_id: UUID, file_id: UUID
     ) -> dict:
-        """Download PDF from URL and run OCR on each page.
+        """Download PDF from URL and extract text using a multi-method approach.
+
+        Tries direct text extraction (pdfplumber, PyPDF2) before falling back to
+        OCR (pdf2image + tesseract) for scanned/image PDFs.
 
         Returns:
-            extracted_text: str (pages combined with double newline)
+            extracted_text: str (pages combined)
             confidence_score: float (0.0 to 1.0)
             word_count: int
             processing_time_ms: int
@@ -138,53 +157,9 @@ class OCRService:
             resp.raise_for_status()
             pdf_bytes = resp.content
 
-        all_text_parts: list = []
-        all_confidences: list = []
+        extracted_text, confidence_score = await self._extract_text_from_pdf_bytes(pdf_bytes)
+        logger.info("PDF text extraction: %d chars for case=%s", len(extracted_text), case_id)
 
-        if _PDF2IMAGE_AVAILABLE:
-            loop = asyncio.get_event_loop()
-            pages = await loop.run_in_executor(
-                None, lambda: convert_from_bytes(pdf_bytes, dpi=200)
-            )
-        else:
-            # Fallback: try PIL directly (single-page PDFs only)
-            try:
-                pages = [Image.open(io.BytesIO(pdf_bytes))]
-            except Exception:
-                logger.warning("Cannot process PDF without pdf2image — returning empty result")
-                return {
-                    "extracted_text": "",
-                    "confidence_score": 0.0,
-                    "word_count": 0,
-                    "processing_time_ms": int((time.monotonic() - start) * 1000),
-                }
-
-        loop = asyncio.get_event_loop()
-        for page_img in pages:
-            page_img = self._preprocess_image(page_img)
-            page_data = await loop.run_in_executor(
-                None,
-                lambda img=page_img: pytesseract.image_to_data(
-                    img,
-                    config=TESSERACT_CONFIG,
-                    output_type=pytesseract.Output.DICT,
-                ),
-            )
-            conf = self._calculate_confidence(page_data)
-            words = [
-                word
-                for word, c in zip(page_data["text"], page_data["conf"])
-                if word.strip() and int(c) > 30
-            ]
-            all_text_parts.append(" ".join(words))
-            all_confidences.append(conf)
-            del page_img
-            gc.collect()
-
-        extracted_text = "\n\n".join(part for part in all_text_parts if part)
-        confidence_score = (
-            round(sum(all_confidences) / len(all_confidences), 4) if all_confidences else 0.0
-        )
         word_count = len(extracted_text.split()) if extracted_text else 0
         processing_time_ms = int((time.monotonic() - start) * 1000)
 
@@ -194,6 +169,87 @@ class OCRService:
             "word_count": word_count,
             "processing_time_ms": processing_time_ms,
         }
+
+    async def _extract_text_from_pdf_bytes(self, pdf_bytes: bytes) -> tuple[str, float]:
+        """Try multiple PDF extraction methods in order of preference.
+
+        Method 1: pdfplumber  — best for text-based PDFs, no poppler needed.
+        Method 2: PyPDF2      — fallback for simple text PDFs.
+        Method 3: pdf2image + tesseract OCR — for scanned/image PDFs, needs poppler.
+
+        Returns (extracted_text, confidence_score) where confidence reflects the
+        reliability of the extraction method used.
+        Returns ("", 0.0) if all methods fail.
+        """
+        # Method 1: pdfplumber (highest reliability — direct text layer extraction)
+        if _PDFPLUMBER_AVAILABLE:
+            try:
+                import pdfplumber  # noqa: PLC0415
+
+                with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                    pages_text = []
+                    for page in pdf.pages:
+                        text = page.extract_text()
+                        if text:
+                            pages_text.append(text)
+                    if pages_text:
+                        extracted_text = "\n".join(pages_text)
+                        logger.info(
+                            "pdfplumber extracted %d chars from PDF", len(extracted_text)
+                        )
+                        return extracted_text, 0.95
+            except Exception as exc:
+                logger.warning("pdfplumber failed: %s", exc)
+
+        # Method 2: PyPDF2 (good reliability — direct text layer extraction)
+        if _PYPDF2_AVAILABLE:
+            try:
+                import PyPDF2  # noqa: PLC0415
+
+                reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+                pages_text = []
+                for page in reader.pages:
+                    text = page.extract_text()
+                    if text:
+                        pages_text.append(text)
+                if pages_text:
+                    extracted_text = "\n".join(pages_text)
+                    logger.info(
+                        "PyPDF2 extracted %d chars from PDF", len(extracted_text)
+                    )
+                    return extracted_text, 0.85
+            except Exception as exc:
+                logger.warning("PyPDF2 failed: %s", exc)
+
+        # Method 3: pdf2image + tesseract OCR (needs poppler — lower reliability due to OCR)
+        if _PDF2IMAGE_AVAILABLE and _TESSERACT_AVAILABLE:
+            try:
+                loop = asyncio.get_event_loop()
+                images = await loop.run_in_executor(
+                    None, lambda: convert_from_bytes(pdf_bytes, dpi=200)
+                )
+                pages_text = []
+                for img in images:
+                    text = await loop.run_in_executor(
+                        None,
+                        lambda i=img: pytesseract.image_to_string(i, config=TESSERACT_CONFIG),
+                    )
+                    if text:
+                        pages_text.append(text)
+                    del img
+                    gc.collect()
+                if pages_text:
+                    extracted_text = "\n".join(pages_text)
+                    logger.info(
+                        "pdf2image+tesseract extracted %d chars from PDF",
+                        len(extracted_text),
+                    )
+                    return extracted_text, 0.70
+            except Exception as exc:
+                logger.warning("pdf2image+tesseract failed: %s", exc)
+
+        logger.error("All PDF extraction methods failed")
+        return "", 0.0
 
     async def process_async(
         self,
