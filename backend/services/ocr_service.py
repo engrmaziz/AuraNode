@@ -289,13 +289,29 @@ class OCRService:
                     case_id,
                 )
             else:
+                word_count = result.get("word_count", 0)
+
+                # When no text was extracted (pure image/scan), signal image content
+                # so the AI analysis service knows to run image analysis.
+                if word_count == 0:
+                    ai_findings_init: Optional[dict] = {
+                        "has_image_content": True,
+                        "original_file_url": file_url,
+                    }
+                    logger.info(
+                        "OCR extracted no text for case=%s — marking has_image_content=True",
+                        case_id,
+                    )
+                else:
+                    ai_findings_init = None
+
                 await supabase_service.update_analysis_result(
                     analysis_id=analysis_id,
                     extracted_text=result["extracted_text"],
                     confidence_score=confidence,
                     risk_score=0.0,
                     flagged_status=False,
-                    ai_findings=None,
+                    ai_findings=ai_findings_init,
                     processing_time_ms=result["processing_time_ms"],
                     file_id=str(file_id),
                     model_version=MODEL_VERSION,
@@ -308,7 +324,7 @@ class OCRService:
                     "OCR complete: case=%s confidence=%.2f words=%d [%dms] — triggering AI analysis",
                     case_id,
                     confidence,
-                    result.get("word_count", 0),
+                    word_count,
                     result.get("processing_time_ms", 0),
                 )
 

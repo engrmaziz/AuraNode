@@ -60,6 +60,21 @@ export function AIFindingsPanel({ findings }: AIFindingsPanelProps) {
 
   return (
     <div className="space-y-5">
+      {/* AI disclaimer banner — always shown when ai_findings data is present */}
+      {aiFindings && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 p-4">
+          <span className="flex-shrink-0 text-amber-600 dark:text-amber-400 text-lg leading-none">
+            ⚠️
+          </span>
+          <p className="text-sm leading-relaxed text-amber-800 dark:text-amber-300">
+            <span className="font-semibold">AI-Assisted Analysis</span> — This is a
+            preliminary screening only. Not a medical diagnosis. All findings must be
+            reviewed and confirmed by a qualified medical specialist before any clinical
+            decision is made.
+          </p>
+        </div>
+      )}
+
       {/* Flagged banner */}
       {flaggedStatus && (
         <div className="flex items-start gap-3 rounded-xl border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 p-4">
