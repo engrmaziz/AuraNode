@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -17,8 +17,8 @@ import {
   X,
 } from "lucide-react";
 import { UserMenu } from "@/components/auth/UserMenu";
-import { useAuth } from "@/hooks/useAuth";
-import type { UserRole } from "@/types";
+import { createBrowserClient } from "@/lib/supabase";
+import type { User, UserRole } from "@/types";
 
 interface NavItem {
   href: string;
@@ -111,20 +111,93 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading } = useAuth();
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const hasRedirected = useRef(false);
 
-  // Once auth state is resolved, redirect unauthenticated users to login.
-  // Using router.replace so the dashboard URL is not added to the browser history.
   useEffect(() => {
-    if (!loading && !user) {
-      router.replace("/login");
-    }
-  }, [loading, user]); // eslint-disable-line react-hooks/exhaustive-deps
+    const supabase = createBrowserClient();
+
+    const fetchProfile = async (userId: string, email: string): Promise<User> => {
+      try {
+        const { data, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("id", userId)
+          .single();
+        if (!error && data) return data as unknown as User;
+      } catch {
+        // fall through to fallback
+      }
+      return {
+        id: userId,
+        email,
+        role: "clinic",
+        full_name: null,
+        organization: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    };
+
+    // Listen for auth state — INITIAL_SESSION fires once when the client
+    // has finished restoring the session from cookies/storage on page load.
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "INITIAL_SESSION") {
+        // This is the first definitive answer about whether the user is logged in
+        if (!session && !hasRedirected.current) {
+          hasRedirected.current = true;
+          router.replace("/login");
+        } else if (session?.user) {
+          const profile = await fetchProfile(session.user.id, session.user.email ?? "");
+          setUser(profile);
+          setLoading(false);
+        }
+      } else if (event === "SIGNED_OUT") {
+        if (!hasRedirected.current) {
+          hasRedirected.current = true;
+          router.replace("/login");
+        }
+      } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        if (session?.user) {
+          const profile = await fetchProfile(session.user.id, session.user.email ?? "");
+          setUser(profile);
+          setLoading(false);
+        } else if (!hasRedirected.current) {
+          hasRedirected.current = true;
+          router.replace("/login");
+        }
+      }
+    });
+
+    // Safety timeout: if INITIAL_SESSION never fires in 5 s (shouldn't happen),
+    // fall back to getSession()
+    const timeout = setTimeout(async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session && !hasRedirected.current) {
+        hasRedirected.current = true;
+        router.replace("/login");
+      } else if (session?.user) {
+        const profile = await fetchProfile(session.user.id, session.user.email ?? "");
+        setUser(profile);
+        setLoading(false);
+      }
+    }, 5000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
+  }, [router]);
 
   // Show a spinner while the session is being determined or while the redirect is in flight.
-  if (loading || !user) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Activity className="h-8 w-8 animate-spin text-primary" />
@@ -132,7 +205,7 @@ export default function DashboardLayout({
     );
   }
 
-  const navItems = NAV_BY_ROLE[user.role as UserRole] ?? NAV_BY_ROLE.clinic;
+  const navItems = NAV_BY_ROLE[(user?.role as UserRole) ?? "clinic"] ?? NAV_BY_ROLE.clinic;
 
   return (
     <div className="min-h-screen flex bg-background">

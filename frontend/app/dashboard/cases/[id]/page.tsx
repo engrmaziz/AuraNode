@@ -2,6 +2,7 @@
 
 import { use, useState, useCallback, useEffect } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Download,
@@ -151,6 +152,12 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
     }
   }, [caseId]);
 
+  // Fetch analysis results immediately on mount so existing completed cases
+  // render without waiting for OCRStatus to trigger onComplete
+  useEffect(() => {
+    fetchAnalysis();
+  }, [fetchAnalysis]);
+
   const handleReprocess = async () => {
     setReprocessing(true);
     setAnalysisError(null);
@@ -229,12 +236,12 @@ function AnalysisTab({ caseId, caseStatus }: { caseId: string; caseStatus: strin
         </div>
       )}
 
-      {aiComplete && analysis && (
+      {(aiComplete || caseStatus === "completed" || caseStatus === "flagged") && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             AI Findings
           </p>
-          <AIFindingsPanel findings={analysis} />
+          <AIFindingsPanel caseId={caseId} />
         </div>
       )}
 
@@ -651,9 +658,18 @@ export default function CaseDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { case: caseData, loading, error, refetch } = useCase(id);
-  const [activeTab, setActiveTab] = useState<Tab>("files");
+  const [activeTab, setActiveTab] = useState<Tab>(
+    (searchParams.get("tab") as Tab) ?? "files"
+  );
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab);
+    router.replace(`?tab=${tab}`, { scroll: false });
+  };
 
   const handleDownload = async (fileId: string, fileName: string) => {
     setDownloadingFileId(fileId);
@@ -779,7 +795,7 @@ export default function CaseDetailPage({
             <button
               key={tabId}
               type="button"
-              onClick={() => setActiveTab(tabId)}
+              onClick={() => handleTabChange(tabId)}
               className={`
                 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
                 ${activeTab === tabId

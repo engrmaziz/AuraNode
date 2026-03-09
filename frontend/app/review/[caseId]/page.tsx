@@ -269,13 +269,13 @@ export default function CaseReviewPage() {
           </div>
 
           {/* AI findings */}
-          {analysis && (
+          {caseId && (
             <div className="bg-white dark:bg-gray-900 border border-border rounded-xl p-4">
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
                 AI Findings
               </h2>
-              <AIFindingsPanel findings={analysis} />
+              <AIFindingsPanel caseId={caseId} />
             </div>
           )}
 
