@@ -39,7 +39,7 @@ CRITICAL_KEYWORDS: List[str] = [
 
 # HuggingFace model identifiers
 _HF_TEXT_MODEL = "facebook/bart-large-mnli"
-_HF_IMAGE_MODEL = "nickmuchi/vit-finetuned-chest-xray-pneumonia"
+_HF_IMAGE_MODEL = "Lsh/chest-xray-pneumonia-classification"
 
 _HF_BASE_URL = "https://api-inference.huggingface.co/models"
 
