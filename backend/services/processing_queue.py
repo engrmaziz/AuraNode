@@ -163,12 +163,13 @@ class ProcessingQueue:
                         "progress": 0,
                         "message": "OCR confidence too low for reliable analysis",
                     }
-                if result.extracted_text:
-                    return {
-                        "status": "completed",
-                        "progress": 100,
-                        "message": f"OCR complete (confidence: {int((result.confidence_score or 0) * 100)}%)",
-                    }
+                # Treat any existing analysis record as completed — even if
+                # extracted_text is empty (e.g. X-rays produce no text but are valid)
+                return {
+                    "status": "completed",
+                    "progress": 100,
+                    "message": f"OCR complete (confidence: {int((result.confidence_score or 0) * 100)}%)",
+                }
         except Exception as exc:
             logger.warning("Could not fetch analysis status from DB: %s", exc)
 
