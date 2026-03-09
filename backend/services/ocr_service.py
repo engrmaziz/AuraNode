@@ -39,8 +39,32 @@ TESSERACT_CONFIG = "--psm 3 --oem 3"
 MODEL_VERSION = "ocr-v1.0.0"
 
 
+def _extract_storage_path(file_url: str) -> str:
+    """Extract the storage path from a Supabase public URL.
+
+    e.g. https://.../storage/v1/object/public/diagnostic-uploads/clinic/case/file/name.jpg
+    → clinic/case/file/name.jpg
+    """
+    marker = "/object/public/diagnostic-uploads/"
+    if marker in file_url:
+        path = file_url.split(marker)[-1]
+        # Strip any query string
+        path = path.split("?")[0]
+        return path
+    # Already a plain path — return as-is
+    return file_url
+
+
 class OCRService:
     """Complete OCR processing service for diagnostic images and PDFs."""
+
+    async def _get_signed_url(self, file_url: str) -> str:
+        """Convert a public storage URL into a short-lived signed URL."""
+        from services.supabase_service import supabase_service  # noqa: PLC0415
+
+        storage_path = _extract_storage_path(file_url)
+        signed_url = await supabase_service.get_signed_url(storage_path=storage_path)
+        return signed_url
 
     async def process_image_from_url(
         self, file_url: str, case_id: UUID, file_id: UUID
@@ -55,20 +79,12 @@ class OCRService:
         """
         start = time.monotonic()
 
-       from services.supabase_service import supabase_service  # noqa: PLC0415
-file_url = await supabase_service.get_signed_url(file_url)
+        signed_url = await self._get_signed_url(file_url)
 
-from services.supabase_service import supabase_service  # noqa: PLC0415
-# Extract storage_path from public URL or use directly
-storage_path = "/".join(file_url.split("/object/public/diagnostic-uploads/")[-1].split("?")[0].split("/"))
-signed_url = await supabase_service.get_signed_url(storage_path=storage_path)
-
-async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
-    resp = await client.get(signed_url)
-    resp.raise_for_status()
-    image_bytes = resp.content
-
-
+        async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
+            resp = await client.get(signed_url)
+            resp.raise_for_status()
+            image_bytes = resp.content
 
         image = Image.open(io.BytesIO(image_bytes))
         image = self._preprocess_image(image)
@@ -115,15 +131,12 @@ async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
         """
         start = time.monotonic()
 
-from services.supabase_service import supabase_service  # noqa: PLC0415
-# Extract storage_path from public URL or use directly
-storage_path = "/".join(file_url.split("/object/public/diagnostic-uploads/")[-1].split("?")[0].split("/"))
-signed_url = await supabase_service.get_signed_url(storage_path=storage_path)
+        signed_url = await self._get_signed_url(file_url)
 
-async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
-    resp = await client.get(signed_url)
-    resp.raise_for_status()
-    image_bytes = resp.content
+        async with httpx.AsyncClient(timeout=_OCR_TIMEOUT_SECONDS) as client:
+            resp = await client.get(signed_url)
+            resp.raise_for_status()
+            pdf_bytes = resp.content
 
         all_text_parts: list = []
         all_confidences: list = []
