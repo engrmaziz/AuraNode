@@ -56,7 +56,7 @@ _AI_DISCLAIMER = (
     "Requires specialist review."
 )
 
-_MIN_TEXT_ANALYSIS_WORD_COUNT = 20
+_MIN_TEXT_ANALYSIS_WORD_COUNT = 10
 
 MODEL_VERSION = "ai-v3.1.0"
 
@@ -77,6 +77,7 @@ class AIAnalysisService:
         logger.info("AI analysis starting: case=%s", case_id)
 
         try:
+            # Step 1: Get the analysis result row (created by OCR worker)
             analysis_record = await supabase_service.get_analysis_result(
                 case_id=str(case_id)
             )
@@ -85,20 +86,40 @@ class AIAnalysisService:
                 return
 
             analysis_id: str = analysis_record.id
-            extracted_text: str = analysis_record.extracted_text or ""
-            word_count = len(extracted_text.split()) if extracted_text.strip() else 0
 
+            # Step 2: Check if we have real extracted text to work with
+            extracted_text: str = analysis_record.extracted_text or ""
+            if extracted_text:
+                logger.info(
+                    "Found extracted text: %d chars for case=%s", len(extracted_text), case_id
+                )
+            else:
+                logger.warning("No extracted text found for case %s", case_id)
+
+            # Step 3: Check if AI analysis already completed (has analysis_type from AI, not OCR)
+            already_analyzed = (
+                analysis_record.ai_findings is not None
+                and "analysis_type" in analysis_record.ai_findings
+            )
+            if already_analyzed:
+                logger.info(
+                    "Case %s already analyzed with risk=%.3f — skipping",
+                    case_id, analysis_record.risk_score,
+                )
+                return
+
+            # Step 4: Determine analysis path (word_count >= 10 → text, else → image)
+            word_count = len(extracted_text.split()) if extracted_text.strip() else 0
             logger.info(
-                "AI analysis: case=%s analysis_id=%s word_count=%d",
-                case_id, analysis_id, word_count,
+                "Case %s: word_count=%d, choosing analysis path", case_id, word_count
             )
 
-            if word_count > _MIN_TEXT_ANALYSIS_WORD_COUNT:
+            if word_count >= _MIN_TEXT_ANALYSIS_WORD_COUNT:
                 logger.info("case=%s: using text analysis (%d words)", case_id, word_count)
                 findings = await self._analyze_text(extracted_text, case_id)
             else:
                 logger.info(
-                    "case=%s: word_count=%d ≤ %d → attempting image analysis",
+                    "case=%s: word_count=%d < %d → attempting image analysis",
                     case_id, word_count, _MIN_TEXT_ANALYSIS_WORD_COUNT,
                 )
                 image_bytes: Optional[bytes] = None
@@ -145,6 +166,10 @@ class AIAnalysisService:
             flagged_status: bool = findings["flagged_status"]
             confidence_score: float = findings.get("confidence_score", risk_score)
 
+            # Step 5: Save results
+            logger.info(
+                "Case %s: final risk=%.3f, flagged=%s", case_id, risk_score, flagged_status
+            )
             await supabase_service.update_analysis_result(
                 analysis_id=analysis_id,
                 risk_score=risk_score,
@@ -154,15 +179,12 @@ class AIAnalysisService:
                 confidence_score=confidence_score,
             )
 
+            # Step 6: Update case status
             new_status = "flagged" if flagged_status else "completed"
             await supabase_service.update_case_status(
                 case_id=str(case_id), new_status=new_status
             )
-
-            logger.info(
-                "AI analysis complete: case=%s risk=%.3f flagged=%s status=%s",
-                case_id, risk_score, flagged_status, new_status,
-            )
+            logger.info("Case %s: status updated to %s", case_id, new_status)
 
             await supabase_service.log_audit(
                 user_id=None,

@@ -13,6 +13,8 @@ httpx==0.25.2
 pillow==10.2.0
 pytesseract==0.3.10
 pdf2image==1.17.0
+pdfplumber==0.11.0
+pypdf2==3.0.1
 reportlab==4.1.0
 sentry-sdk[fastapi]==1.40.0
 pydantic[email]==2.5.3
