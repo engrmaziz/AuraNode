@@ -1,3 +1,4 @@
+import { createBrowserClient as createSSRBrowserClient } from "@supabase/ssr";
 import { createClientComponentClient, createServerComponentClient, createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
 
@@ -212,27 +213,24 @@ export interface Database {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-/**
- * Middleware Supabase client factory.
- * Re-exported here so middleware can import it from a single location
- * alongside the Database type (also exported from this file).
- */
+// Keep for any files that still import it directly
 export { createMiddlewareClient };
 
 /**
- * Client-side Supabase client.
- * Use in Client Components ("use client").
+ * Client-side Supabase client using @supabase/ssr.
+ * This MUST use @supabase/ssr (not auth-helpers) so it reads the same
+ * cookie format that middleware writes. Using auth-helpers here causes
+ * session mismatch — the token is refreshed by middleware but unreadable
+ * by the browser client, producing 401s on all API calls.
  */
 export const createBrowserClient = () =>
-  createClientComponentClient<Database>();
+  createSSRBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
 
 /**
  * Server-side Supabase client.
  * Use in Server Components, Route Handlers, and Server Actions.
  */
 export const createServerClient = () => {
-  // Lazy require to avoid bundling "next/headers" into client component builds.
-  // This function only runs on the server; the require() executes at call time.
   const { cookies } = require("next/headers") as { cookies: typeof import("next/headers").cookies }; // eslint-disable-line
   return createServerComponentClient<Database>({ cookies });
 };
