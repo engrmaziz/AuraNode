@@ -163,8 +163,8 @@ function PriorityBarChart({ data }: PriorityBarChartProps) {
 // ─── Page ────────────────────────────────────────────────────
 
 function DashboardContent() {
-  const { user, loading: authLoading } = useAuth();
-  const { stats, loading, error, refetch } = useCaseStats();
+const { user, loading: authLoading } = useAuth();
+const { stats, loading, error, refetch } = useCaseStats(!!user && !authLoading);
 
   if (authLoading || !user) {
     return (
