@@ -1,489 +1,397 @@
-# AuraNode
+# Organic Harvest
 
-> **AI-Powered Diagnostic Intelligence** — A production SaaS platform enabling clinics to upload diagnostic images (ECG scans, X-rays, etc.), process them through OCR + AI analysis, route flagged cases to specialists, and generate PDF reports.
+> **Premium Farm-to-Table E-Commerce** — A highly automated, enterprise-grade platform featuring AI-powered upselling, automated abandoned-cart revenue recovery, hands-free post-purchase drip campaigns, and cryptographic coupon enforcement.
 
-[![Deploy Frontend](https://github.com/engrmaziz/AuraNode/actions/workflows/frontend-deploy.yml/badge.svg)](https://github.com/engrmaziz/AuraNode/actions/workflows/frontend-deploy.yml)
-[![Deploy Backend](https://github.com/engrmaziz/AuraNode/actions/workflows/backend-deploy.yml/badge.svg)](https://github.com/engrmaziz/AuraNode/actions/workflows/backend-deploy.yml)
+[![Deploy Frontend](https://img.shields.io/badge/Frontend-Deployed%20on%20Vercel-black?logo=vercel&logoColor=white)](https://vercel.com)
+[![Deploy Backend to Railway](https://github.com/engrmaziz/AuraNode/actions/workflows/backend-deploy.yml/badge.svg)](https://github.com/engrmaziz/AuraNode/actions/workflows/backend-deploy.yml)
 
 ---
 
 ## Table of Contents
 
-1. [Overview & Features](#overview--features)
+1. [Project Overview](#project-overview)
 2. [Tech Stack](#tech-stack)
-3. [Architecture](#architecture)
+3. [Core Engines](#core-engines)
+   - [AI Smart-Bundling (AOV Booster)](#1-ai-smart-bundling-aov-booster)
+   - [Ghost Revenue Retriever (Abandoned Cart)](#2-ghost-revenue-retriever-abandoned-cart)
+   - [Automated Post-Purchase Drip Campaigns](#3-automated-post-purchase-drip-campaigns)
+   - [Cryptographic Coupon Engine](#4-cryptographic-coupon-engine)
 4. [Project Structure](#project-structure)
-5. [Setup Instructions](#setup-instructions)
+5. [Local Development](#local-development)
 6. [Environment Variables](#environment-variables)
-7. [Running Locally](#running-locally)
-8. [Deployment Guide](#deployment-guide)
-9. [API Reference](#api-reference)
-10. [Database Schema](#database-schema)
-11. [Troubleshooting](#troubleshooting)
-12. [Contributing](#contributing)
-13. [License](#license)
+7. [Vercel Cron Jobs](#vercel-cron-jobs)
+8. [Deployment](#deployment)
+9. [Contributing](#contributing)
+10. [License](#license)
 
 ---
 
-## Overview & Features
+## Project Overview
 
-AuraNode is a HIPAA-conscious medical imaging SaaS platform that:
+**Organic Harvest** is a premium, farm-to-table e-commerce platform engineered for maximum revenue retention and customer lifetime value. Beyond a standard storefront, it ships four battle-tested automation engines that run continuously in the background:
 
-- **Upload & Store** — Clinics upload diagnostic images (ECG, X-ray, MRI) securely to Supabase Storage
-- **OCR Processing** — pytesseract extracts text from scans automatically
-- **AI Risk Analysis** — Extracted text sent to Hugging Face Inference API for risk scoring
-- **Automated Flagging** — High-risk cases (score ≥ 0.7) flagged for mandatory specialist review
-- **Specialist Review** — Assigned specialists review cases, submit decisions with clinical notes
-- **PDF Report Generation** — Full diagnostic reports generated via ReportLab with multi-page layouts
-- **Role-Based Access** — Clinic, Specialist, and Admin roles with row-level security
-- **Audit Trail** — Every action recorded in `audit_logs` with user ID and timestamp
-- **Error Tracking** — Sentry integration on both frontend and backend
-- **CI/CD Pipelines** — Automated deploy to Vercel (frontend) and Render (backend)
+- **Recover lost revenue** from abandoned carts automatically, without manual intervention.
+- **Increase average order value (AOV)** with mathematically precise, in-cart upsell offers.
+- **Retain customers long-term** through timed post-purchase review and discount sequences.
+- **Prevent coupon abuse** with a cryptographically enforced, single-use code system.
+
+Every engine is serverless-native — hosted on Vercel with zero infrastructure to manage.
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 15 (App Router), TypeScript, Tailwind CSS |
-| Backend | FastAPI, Python 3.11 |
-| Database | Supabase (PostgreSQL + RLS) |
-| Auth | Supabase Auth (JWT) |
-| Storage | Supabase Storage |
-| OCR (Backend) | pytesseract + Pillow |
-| AI Analysis | Hugging Face Inference API |
-| PDF Generation | ReportLab |
-| Error Tracking | Sentry |
-| Frontend Hosting | Vercel |
-| Backend Hosting | Render (Docker) |
-| CI/CD | GitHub Actions |
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Framework** | [Next.js](https://nextjs.org/) (App Router) | Full-stack React framework, API routes, server components |
+| **Database** | [Supabase](https://supabase.com/) (PostgreSQL) | Relational data store with Row Level Security |
+| **Hosting & Cron** | [Vercel](https://vercel.com/) | Serverless hosting and scheduled Cron Jobs |
+| **Transactional Email** | [Resend](https://resend.com/) | Abandoned-cart recovery and drip campaign delivery |
+| **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Utility-first CSS framework |
 
 ---
 
-## Architecture
+## Core Engines
 
+### 1. AI Smart-Bundling (AOV Booster)
+
+**Purpose:** Increase average order value by surfacing a perfectly timed, mathematically discounted upsell offer at the moment a customer is most likely to add more items.
+
+**How it works:**
+
+1. When a customer views their cart, the engine queries the active cart state from Supabase in real time.
+2. It cross-references the cart contents against the full product catalog to identify products the customer has **not** yet added.
+3. A curated bundle recommendation is computed and surfaced inline — no page reload required (powered by Next.js Server Actions / React state).
+4. The offer applies a **precise 15% discount** to the recommended items, calculated server-side to prevent client-side tampering.
+5. The customer can add the bundle to their cart with a single click — completing the upsell without ever leaving the checkout flow.
+
+**Key files:**
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                          CLIENT BROWSER                          │
-│  Next.js 15 App (Vercel)                                         │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────┐  │
-│  │  Upload UI  │  │ Dashboard  │  │  Review UI  │  │ Reports  │  │
-│  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └────┬─────┘  │
-└────────┼───────────────┼───────────────┼───────────────┼────────┘
-         │               │               │               │
-         ▼               ▼               ▼               ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend (Render)                       │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐    │
-│  │   Auth   │  │  Cases   │  │ Analysis │  │   Reports    │    │
-│  │  Router  │  │  Router  │  │  Router  │  │    Router    │    │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────┬───────┘    │
-│       │             │             │                │             │
-│  ┌────▼─────────────▼─────────────▼────────────────▼──────┐     │
-│  │                      Services Layer                     │     │
-│  │  supabase_service │ ocr_service │ ai_service │ reports  │     │
-│  └─────────────────────────────────────────────────────────┘     │
-└───────────────────────────────┬──────────────────────────────────┘
-                                │
-             ┌──────────────────┼──────────────────┐
-             ▼                  ▼                  ▼
-    ┌─────────────┐   ┌──────────────────┐   ┌──────────────┐
-    │  Supabase   │   │  Hugging Face    │   │    Sentry    │
-    │  (DB+Auth   │   │  Inference API   │   │  (Observ.)   │
-    │  +Storage)  │   │   (AI Models)    │   │              │
-    └─────────────┘   └──────────────────┘   └──────────────┘
+app/
+└── api/
+    └── upsell/
+        └── route.ts          # Computes bundle recommendations & discount
+components/
+└── cart/
+    └── SmartBundleOffer.tsx  # 1-click upsell UI component
 ```
 
-### Data Flow
+---
 
-1. **Upload**: Clinic uploads image → stored in Supabase Storage → `case_files` record created
-2. **OCR**: Backend extracts text using pytesseract → stored in `analysis_results`
-3. **AI Analysis**: Extracted text sent to Hugging Face → risk score computed
-4. **Flagging**: High-risk cases (score ≥ 0.7) marked `flagged` → specialist notified
-5. **Review**: Specialist reviews case → submits decision → case marked `completed`
-6. **Report**: PDF report generated via ReportLab → stored in Supabase Storage → signed URL returned
+### 2. Ghost Revenue Retriever (Abandoned Cart)
 
-### Security Model
+**Purpose:** Automatically recover revenue from customers who added items to their cart but never completed checkout.
 
-- **Row Level Security (RLS)**: All Supabase tables enforce per-user access policies
-- **JWT Auth**: All backend API calls require valid Supabase JWT in `Authorization: Bearer` header
-- **Role-Based Access**:
-  - `clinic` — can upload/view own cases and download own reports
-  - `specialist` — can view/review assigned cases
-  - `admin` — full access to all resources
-- **Audit Logs**: Every state change recorded in `audit_logs` table
-- **Non-root Docker**: Production container runs as unprivileged user
+**How it works:**
+
+1. All in-progress carts are stored as **draft orders** in Supabase with a `status = 'draft'` and a `created_at` timestamp.
+2. A **Vercel Cron Job** runs every day at midnight UTC (`0 0 * * *`).
+3. The cron handler queries all draft orders older than a configurable threshold (default: 24 hours).
+4. For each abandoned cart, the engine generates a **one-time-use promo code** (see [Cryptographic Coupon Engine](#4-cryptographic-coupon-engine)) unique to that customer.
+5. A personalized recovery email is sent via **Resend**, containing the customer's cart summary and their unique discount code.
+6. Once the customer completes checkout using the code, it is immediately burned (marked `used = true`) in the database.
+
+**Key files:**
+```
+app/
+└── api/
+    └── cron/
+        └── abandoned-cart/
+            └── route.ts      # Cron handler: queries drafts, generates codes, sends emails
+emails/
+└── AbandonedCartEmail.tsx    # Resend React email template
+vercel.json                   # Cron schedule definition
+```
+
+**Cron schedule (`vercel.json`):**
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/abandoned-cart",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+```
+
+---
+
+### 3. Automated Post-Purchase Drip Campaigns
+
+**Purpose:** Maximize long-term customer retention and generate organic social proof with zero manual effort.
+
+**How it works:**
+
+The engine dispatches two timed emails after every completed order:
+
+| Trigger | Delay | Email Content |
+|---------|-------|---------------|
+| Order confirmed | **+7 days** | Review request — links directly to the product page for a one-click star rating |
+| Order confirmed | **+14 days** | Returning customer discount — a unique 10% off code to incentivize the next purchase |
+
+Both emails are scheduled by inserting a job record into a Supabase `email_queue` table at order completion. A **Vercel Cron Job** polls the queue on a defined schedule and dispatches due emails via **Resend**.
+
+**Key files:**
+```
+app/
+└── api/
+    └── cron/
+        └── drip-campaigns/
+            └── route.ts      # Cron handler: polls email_queue, sends due emails
+emails/
+├── ReviewRequestEmail.tsx    # 7-day review request template
+└── ReturningCustomerEmail.tsx# 14-day discount offer template
+lib/
+└── email-queue.ts            # Helpers for enqueuing and dequeuing drip jobs
+```
+
+**Cron schedule (`vercel.json`):**
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/drip-campaigns",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
+```
+
+---
+
+### 4. Cryptographic Coupon Engine
+
+**Purpose:** Issue single-use promo codes that are mathematically impossible to reuse or brute-force, protecting margin from coupon abuse at scale.
+
+**How it works:**
+
+1. **Code Generation** — Each code is derived from a cryptographically random token (`crypto.randomUUID()` + HMAC-SHA256), guaranteeing uniqueness and unpredictability.
+2. **Database Record** — Every code is stored in the `promo_codes` table with:
+   - `code` — the hashed token (never stored in plain text in logs)
+   - `discount_percent` — the applied discount
+   - `max_uses` — hard limit (typically `1` for abandoned-cart codes)
+   - `use_count` — incremented atomically on redemption
+   - `expires_at` — TTL for time-bound offers
+3. **Validation at Checkout** — Before applying a discount, the API:
+   - Confirms the code exists and is not expired
+   - Confirms `use_count < max_uses`
+   - Applies the discount to the order total
+4. **Instant Burn** — Immediately after a successful charge, the `use_count` is incremented in the same database transaction, making concurrent reuse impossible.
+
+**Key files:**
+```
+app/
+└── api/
+    ├── checkout/
+    │   └── route.ts          # Validates & burns code at checkout
+    └── coupons/
+        └── route.ts          # Admin endpoint to generate & list codes
+lib/
+└── coupons.ts                # Cryptographic generation & validation logic
+```
+
+**Promo codes table schema:**
+```sql
+CREATE TABLE promo_codes (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code          TEXT NOT NULL UNIQUE,
+  discount_percent INT NOT NULL,
+  max_uses      INT NOT NULL DEFAULT 1,
+  use_count     INT NOT NULL DEFAULT 0,
+  expires_at    TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
 
 ---
 
 ## Project Structure
 
 ```
-auranode/
-├── frontend/                     # Next.js 15 application
-│   ├── app/
-│   │   ├── layout.tsx            # Root layout
-│   │   ├── page.tsx              # Landing page
-│   │   ├── globals.css           # Global styles
-│   │   ├── (auth)/
-│   │   │   ├── login/page.tsx
-│   │   │   └── register/page.tsx
-│   │   └── dashboard/
-│   │       ├── layout.tsx        # Dashboard shell + nav
-│   │       ├── page.tsx          # Stats dashboard
-│   │       ├── cases/
-│   │       │   ├── page.tsx      # Cases list
-│   │       │   └── [id]/page.tsx # Case detail + tabs
-│   │       ├── reports/page.tsx  # Reports list (clinic)
-│   │       └── upload/page.tsx   # Upload new case
-│   ├── components/
-│   │   ├── analysis/             # OCR / AI findings panels
-│   │   ├── cases/                # Case UI components
-│   │   ├── reports/
-│   │   │   └── ReportCard.tsx    # Report card component
-│   │   ├── review/               # Review form & viewer
-│   │   └── upload/               # Drag-and-drop uploader
-│   ├── hooks/                    # React custom hooks
-│   ├── lib/
-│   │   ├── api-client.ts         # Typed fetch wrapper
-│   │   ├── supabase.ts           # Supabase browser client
-│   │   └── utils.ts              # Helpers
-│   ├── types/index.ts            # TypeScript interfaces
-│   ├── middleware.ts             # Auth + RBAC middleware
-│   ├── sentry.client.config.ts   # Sentry browser init
-│   ├── sentry.server.config.ts   # Sentry server init
-│   ├── next.config.js
-│   ├── tailwind.config.ts
-│   ├── tsconfig.json
-│   └── package.json
-│
-├── backend/                      # FastAPI application
-│   ├── main.py                   # App entry point + Sentry
-│   ├── config/settings.py        # Pydantic settings
-│   ├── routers/                  # API route handlers
-│   │   ├── auth.py
-│   │   ├── cases.py
-│   │   ├── uploads.py
-│   │   ├── analysis.py
-│   │   ├── reviews.py
-│   │   └── reports.py
-│   ├── services/
-│   │   ├── supabase_service.py   # All DB/storage ops
-│   │   ├── ocr_service.py        # Tesseract OCR
-│   │   ├── ai_analysis_service.py# HuggingFace AI
-│   │   ├── report_service.py     # ReportLab PDF gen
-│   │   ├── case_service.py       # Case business logic
-│   │   ├── notification_service.py
-│   │   └── processing_queue.py   # Async worker queue
-│   ├── models/                   # Pydantic models
-│   ├── middleware/               # JWT auth middleware
-│   ├── utils/                    # Helpers & validators
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .env.example
-│
-├── shared/api-contracts.ts       # Shared TypeScript API types
-├── docs/architecture.md          # Detailed architecture docs
-├── scripts/
-│   ├── setup.sh                  # One-command setup script
-│   └── db-setup.sql              # Supabase SQL schema
-├── .github/workflows/
-│   ├── frontend-deploy.yml       # Vercel deploy on push
-│   └── backend-deploy.yml        # Render deploy on push
-└── README.md
+organic-harvest/
+├── app/                          # Next.js App Router
+│   ├── (store)/                  # Public storefront routes
+│   │   ├── page.tsx              # Homepage
+│   │   ├── products/[slug]/      # Product detail pages
+│   │   └── cart/                 # Cart & checkout flow
+│   ├── (dashboard)/              # Admin dashboard routes
+│   │   ├── orders/               # Order management
+│   │   └── coupons/              # Coupon management
+│   └── api/                      # API route handlers
+│       ├── checkout/route.ts     # Order processing + coupon burn
+│       ├── coupons/route.ts      # Coupon generation
+│       ├── upsell/route.ts       # Smart bundle recommendations
+│       └── cron/
+│           ├── abandoned-cart/route.ts   # Ghost Revenue Retriever
+│           └── drip-campaigns/route.ts  # Post-purchase drip
+├── components/                   # Reusable UI components
+│   ├── cart/
+│   │   └── SmartBundleOffer.tsx  # 1-click upsell widget
+│   ├── product/
+│   └── layout/
+├── emails/                       # Resend React email templates
+│   ├── AbandonedCartEmail.tsx
+│   ├── ReviewRequestEmail.tsx
+│   └── ReturningCustomerEmail.tsx
+├── lib/                          # Shared utilities
+│   ├── supabase.ts               # Supabase browser client
+│   ├── supabase-server.ts        # Supabase server client (Server Components)
+│   ├── coupons.ts                # Cryptographic coupon logic
+│   └── email-queue.ts            # Drip campaign queue helpers
+├── types/                        # TypeScript interfaces
+│   └── index.ts
+├── public/                       # Static assets
+├── vercel.json                   # Cron job schedules
+├── next.config.ts
+├── tailwind.config.ts
+├── tsconfig.json
+├── .env.example
+└── package.json
 ```
 
 ---
 
-## Setup Instructions
+## Local Development
 
 ### Prerequisites
 
-- Node.js 18+
-- Python 3.11+
-- Tesseract OCR (`sudo apt-get install tesseract-ocr` or `brew install tesseract`)
-- A [Supabase](https://supabase.com) account (free tier works)
-- A [Hugging Face](https://huggingface.co) account (free tier works)
+- **Node.js** 18+
+- A [Supabase](https://supabase.com) project (free tier is sufficient)
+- A [Resend](https://resend.com) account and API key
 
-### 1. Clone the Repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/engrmaziz/AuraNode.git
 cd AuraNode
 ```
 
-### 2. Supabase Setup
-
-1. Create a new project at https://supabase.com/dashboard/new
-2. Open **SQL Editor** and run the contents of `scripts/db-setup.sql`
-3. Go to **Storage** and create two private buckets:
-   - `case-files`
-   - `generated-reports`
-4. Copy your credentials from **Project Settings → API**:
-   - **Project URL** → `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL`
-   - **anon / public key** → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - **service_role key** → `SUPABASE_SERVICE_KEY` (never expose client-side)
-
-### 3. Hugging Face API Key
-
-1. Create a free account at https://huggingface.co
-2. Go to **Settings → Access Tokens → New token** (read access is enough)
-3. Copy the token as `HUGGINGFACE_API_TOKEN` in `backend/.env`
-
-### 4. Run setup.sh
+### 2. Install dependencies
 
 ```bash
-chmod +x scripts/setup.sh
-./scripts/setup.sh
+npm install
 ```
 
-This will:
-1. Check Node.js 18+ and Python 3.11+
-2. Create `frontend/.env.local` from the example
-3. Create `backend/.env` from the example
-4. Install all frontend npm dependencies
-5. Install all backend Python dependencies
-6. Print Supabase, Vercel, and Render deployment instructions
-7. Print the full environment variables checklist
+### 3. Configure environment variables
 
-### 5. Fill Environment Variables
-
-Edit the generated files with your real credentials:
-```
-frontend/.env.local   — Supabase URL, anon key, backend API URL
-backend/.env          — Supabase URL, service key, HuggingFace token
-```
-
-### 6. Start Dev Servers
+Copy the example file and fill in your credentials:
 
 ```bash
-# Terminal 1 — Frontend
-cd frontend && npm run dev
-# → http://localhost:3000
-
-# Terminal 2 — Backend
-cd backend && uvicorn main:app --reload
-# → http://localhost:8000
-# → http://localhost:8000/docs  (Swagger UI)
+cp .env.example .env.local
 ```
+
+See [Environment Variables](#environment-variables) for the full reference.
+
+### 4. Start the development server
+
+```bash
+npm run dev
+```
+
+The app will be available at [http://localhost:3000](http://localhost:3000).
+
+> **Note:** Vercel Cron Jobs do not run in local development. To test cron endpoints manually, call them directly:
+> ```bash
+> curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/abandoned-cart
+> ```
 
 ---
 
 ## Environment Variables
 
-### Frontend (`frontend/.env.local`)
+Copy `.env.example` to `.env.local` and populate every value before running the app.
 
-| Variable | Description | Where to Find | Required |
-|----------|-------------|---------------|----------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Supabase → Settings → API → Project URL | ✅ |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key | Supabase → Settings → API → anon/public | ✅ |
-| `NEXT_PUBLIC_API_URL` | Backend URL (e.g. `https://api.onrender.com`) | Render dashboard after deploy | ✅ |
-| `NEXT_PUBLIC_SENTRY_DSN` | Sentry DSN for browser error tracking | Sentry → Project → Settings → Client Keys | ⬜ |
-| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | Domain for Plausible analytics | Your Plausible dashboard | ⬜ |
+```env
+# ── Supabase ─────────────────────────────────────────────────────────────────
+# Your Supabase project URL (found in: Project Settings → API → Project URL)
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 
-### Backend (`backend/.env`)
+# Supabase anonymous/public key (safe to expose to the browser)
+# Found in: Project Settings → API → anon/public
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
 
-| Variable | Description | Where to Find | Required |
-|----------|-------------|---------------|----------|
-| `SUPABASE_URL` | Supabase project URL | Supabase → Settings → API → Project URL | ✅ |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key (never expose!) | Supabase → Settings → API → service_role | ✅ |
-| `SUPABASE_JWT_SECRET` | JWT secret for token verification | Supabase → Settings → API → JWT Secret | ✅ |
-| `HUGGINGFACE_API_TOKEN` | Hugging Face Inference API token | huggingface.co → Settings → Access Tokens | ✅ |
-| `SENTRY_DSN` | Sentry DSN for backend error tracking | Sentry → Project → Settings → Client Keys | ⬜ |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins | Your frontend URL(s) | ✅ |
-| `SECRET_KEY` | Random secret for signing (min 32 chars) | Generate: `openssl rand -hex 32` | ✅ |
-| `ENVIRONMENT` | `development` or `production` | Set manually | ✅ |
-| `MAX_FILE_SIZE_MB` | Maximum upload size in MB (default: `10`) | Set manually | ⬜ |
-| `APP_VERSION` | Application version string (default: `1.0.0`) | Set manually | ⬜ |
-| `LOG_LEVEL` | Logging level: `DEBUG`/`INFO`/`WARNING` | Set manually | ⬜ |
-| `WORKERS` | Uvicorn worker count (default: `2`) | Set manually | ⬜ |
+# Supabase service role key — NEVER expose client-side; server-only
+# Found in: Project Settings → API → service_role
+SUPABASE_SERVICE_ROLE_KEY=
 
----
+# ── Resend (Transactional Email) ──────────────────────────────────────────────
+# API key for sending abandoned-cart and drip campaign emails
+# Found in: Resend dashboard → API Keys
+RESEND_API_KEY=
 
-## Running Locally
+# The "From" address used for all outgoing emails (must be a verified sender)
+RESEND_FROM_EMAIL=hello@organic-harvest.com
 
-```bash
-# Frontend
-cd frontend && npm run dev          # → http://localhost:3000
+# ── Cron Security ─────────────────────────────────────────────────────────────
+# A long random secret used to authenticate Vercel Cron Job requests
+# Generate with: openssl rand -hex 32
+CRON_SECRET=
 
-# Backend
-cd backend && uvicorn main:app --reload   # → http://localhost:8000
+# ── App ───────────────────────────────────────────────────────────────────────
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
-API documentation (Swagger UI) is available at http://localhost:8000/docs in development mode.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Supabase public/anon key (browser-safe) |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Supabase service role key — **server-only** |
+| `RESEND_API_KEY` | ✅ | Resend API key for transactional emails |
+| `RESEND_FROM_EMAIL` | ✅ | Verified sender address for outgoing emails |
+| `CRON_SECRET` | ✅ | Secret to authenticate incoming cron requests |
+| `NEXT_PUBLIC_SITE_URL` | ✅ | Public base URL of the site |
 
 ---
 
-## Deployment Guide
+## Vercel Cron Jobs
 
-### Frontend → Vercel
+The **Ghost Revenue Retriever** and **Post-Purchase Drip Campaigns** engines rely on Vercel Cron Jobs to operate automatically. These are defined in `vercel.json`:
 
-**Option A: Vercel Dashboard**
-
-1. Push code to GitHub
-2. Go to https://vercel.com/new and import the repository
-3. Set **Root Directory** to `frontend`
-4. Add all environment variables from `frontend/.env.local`
-5. Click **Deploy**
-
-**Option B: Vercel CLI**
-
-```bash
-npm install -g vercel
-cd frontend
-vercel link        # link to project
-vercel --prod      # deploy to production
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/abandoned-cart",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/drip-campaigns",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
 ```
 
-**Option C: GitHub Actions (automatic)**
+> **Important:** Vercel Cron Jobs are only active in Vercel-hosted deployments (Preview and Production). They do **not** run in local development. Ensure `CRON_SECRET` is set in your Vercel environment variables and that each cron route validates the `Authorization: Bearer <CRON_SECRET>` header.
 
-Add these secrets to your GitHub repository (**Settings → Secrets → Actions**):
-
-| Secret | Description |
-|--------|-------------|
-| `VERCEL_TOKEN` | Vercel personal access token |
-| `VERCEL_ORG_ID` | Vercel team/org ID |
-| `VERCEL_PROJECT_ID` | Vercel project ID |
-| `NEXT_PUBLIC_SUPABASE_URL` | (see above) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | (see above) |
-| `NEXT_PUBLIC_API_URL` | (see above) |
-| `NEXT_PUBLIC_SENTRY_DSN` | (see above, optional) |
-
-Every push to `main` that touches `frontend/**` triggers an automatic deploy.
+Refer to the [Vercel Cron Jobs documentation](https://vercel.com/docs/cron-jobs) for scheduling syntax and monitoring.
 
 ---
 
-### Backend → Render
+## Deployment
 
-**Option A: Render Dashboard**
+This project is designed to deploy on **Vercel** with zero additional infrastructure.
 
-1. Go to https://render.com and connect your GitHub repository
-2. Set **Root Directory** to `backend`
-3. Set **Runtime** to `Docker`
-4. Add all environment variables from `backend/.env.example`
-5. Enable **Auto-Deploy** from the `main` branch
-6. Click **Create Web Service** — Render builds the `Dockerfile` and deploys automatically
+### Deploy to Vercel
 
-**Option B: GitHub Actions (automatic)**
+1. Push the repository to GitHub.
+2. Go to [vercel.com/new](https://vercel.com/new) and import the repository.
+3. Add all [environment variables](#environment-variables) in the Vercel project settings.
+4. Click **Deploy**.
 
-Add this secret to your GitHub repository (**Settings → Secrets → Actions**):
-
-| Secret | Description |
-|--------|-------------|
-| `RENDER_DEPLOY_HOOK_URL` | Render deploy hook URL (found in Render service settings → Deploy Hook) |
-
-> **Note**: The previous Docker Hub and Render-unrelated secrets (`DOCKER_USERNAME`, `DOCKER_PASSWORD`, and the old CI token) are no longer required and can be removed from your repository secrets.
-
-Every push to `main` that touches `backend/**` triggers an automatic deploy via the Render deploy hook.
-
----
-
-## API Reference
-
-Full interactive Swagger UI available at `http://localhost:8000/docs` when running locally.
-
-### Endpoints
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/v1/auth/register` | Public | Register new user |
-| `POST` | `/api/v1/auth/login` | Public | Login and receive JWT |
-| `POST` | `/api/v1/auth/logout` | JWT | Sign out |
-| `GET` | `/api/v1/auth/me` | JWT | Get current user profile |
-| `GET` | `/api/v1/cases` | JWT | List cases (filtered by role) |
-| `POST` | `/api/v1/cases` | clinic | Create new case |
-| `GET` | `/api/v1/cases/{id}` | JWT | Get case details |
-| `PUT` | `/api/v1/cases/{id}/status` | admin/specialist | Update case status |
-| `POST` | `/api/v1/uploads/{case_id}` | clinic | Upload file to case |
-| `GET` | `/api/v1/uploads/{case_id}/files` | JWT | List case files |
-| `POST` | `/api/v1/analysis/case/{case_id}` | admin | Trigger AI analysis |
-| `GET` | `/api/v1/analysis/case/{case_id}` | JWT | Get analysis results |
-| `POST` | `/api/v1/reviews/{case_id}` | specialist | Submit review |
-| `GET` | `/api/v1/reviews/{case_id}` | JWT | List reviews for case |
-| `POST` | `/api/v1/reports/{case_id}` | admin/specialist | Generate PDF report |
-| `GET` | `/api/v1/reports/{case_id}` | JWT | List reports for case |
-| `GET` | `/api/v1/reports/{case_id}/download/{report_id}` | JWT | Stream PDF download |
-| `GET` | `/health` | Public | Health check |
-
----
-
-## Database Schema
-
-See `scripts/db-setup.sql` for the complete SQL schema including:
-
-- **Tables**: `users`, `cases`, `case_files`, `analysis_results`, `reviews`, `reports`, `audit_logs`
-- **Row Level Security**: Per-role policies on every table
-- **Indexes**: Performance indexes on foreign keys and status columns
-- **Triggers**: Automatic `updated_at` timestamps
-
----
-
-## Troubleshooting
-
-### 1. `NEXT_PUBLIC_API_URL` not set — API calls fail with 404
-
-**Symptom**: Frontend shows "Failed to load cases" or 404 errors in the network tab.
-
-**Fix**: Ensure `NEXT_PUBLIC_API_URL` is set in `frontend/.env.local` (dev) or Vercel environment variables (production). It should point to your backend URL, e.g. `http://localhost:8000` for local dev.
-
----
-
-### 2. OCR returns empty text
-
-**Symptom**: `extracted_text` is empty after processing.
-
-**Fix**: Check that `tesseract-ocr` is installed on the server:
-```bash
-tesseract --version
-```
-Install if missing: `sudo apt-get install tesseract-ocr tesseract-ocr-eng`
-
-Also verify the uploaded image has sufficient resolution (min 150 DPI recommended).
-
----
-
-### 3. Supabase RLS blocking queries — `406 Not Acceptable` or empty results
-
-**Symptom**: API returns 200 but data is empty; Supabase logs show RLS policy denials.
-
-**Fix**: Make sure the backend is using the `SUPABASE_SERVICE_KEY` (service role), **not** the anon key. The service role key bypasses RLS — keep it secret and only use it server-side.
-
----
-
-### 4. PDF report generation fails
-
-**Symptom**: `POST /api/v1/reports/{case_id}` returns 500.
-
-**Fix**: Check that `reportlab` is installed:
-```bash
-pip install reportlab==4.1.0
-```
-Also confirm the case status is `completed` — reports can only be generated for completed cases.
-
----
-
-### 5. Render deploy does not pick up the Dockerfile
-
-**Symptom**: Render build fails or uses the wrong runtime.
-
-**Fix**: In the Render service settings, confirm **Root Directory** is set to `backend` and **Runtime** is set to `Docker`. Render will then use `backend/Dockerfile` for every deploy.
+Vercel automatically detects the Next.js framework, builds the project, and activates the Cron Jobs defined in `vercel.json`.
 
 ---
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Make your changes with tests
-4. Run lints: `cd frontend && npm run lint` and `cd backend && python -m py_compile main.py`
-5. Commit using conventional commits: `feat: add X`, `fix: correct Y`
-6. Open a pull request against `main`
+1. Fork the repository and create a feature branch: `git checkout -b feature/your-feature`
+2. Commit your changes with a descriptive message
+3. Open a Pull Request against `main`
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
-
-© 2024 AuraNode. All rights reserved.
+MIT © Organic Harvest
