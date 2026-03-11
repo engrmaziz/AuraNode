@@ -142,16 +142,16 @@ export default function DashboardLayout({
       };
     };
 
-    // Listen for auth state — INITIAL_SESSION fires once when the client
-    // has finished restoring the session from cookies/storage on page load.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "INITIAL_SESSION") {
-        // This is the first definitive answer about whether the user is logged in
-        if (!session && !hasRedirected.current) {
-          hasRedirected.current = true;
-          router.replace("/login");
+        if (!session) {
+          if (!hasRedirected.current) {
+            hasRedirected.current = true;
+            setLoading(false);
+            router.replace("/login");
+          }
         } else if (session?.user) {
           const profile = await fetchProfile(session.user.id, session.user.email ?? "");
           setUser(profile);
@@ -160,6 +160,7 @@ export default function DashboardLayout({
       } else if (event === "SIGNED_OUT") {
         if (!hasRedirected.current) {
           hasRedirected.current = true;
+          setLoading(false);
           router.replace("/login");
         }
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
@@ -169,20 +170,24 @@ export default function DashboardLayout({
           setLoading(false);
         } else if (!hasRedirected.current) {
           hasRedirected.current = true;
+          setLoading(false);
           router.replace("/login");
         }
       }
     });
 
-    // Safety timeout: if INITIAL_SESSION never fires in 5 s (shouldn't happen),
+    // Safety timeout: if INITIAL_SESSION never fires in 5s,
     // fall back to getSession()
     const timeout = setTimeout(async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      if (!session && !hasRedirected.current) {
-        hasRedirected.current = true;
-        router.replace("/login");
+      if (!session) {
+        if (!hasRedirected.current) {
+          hasRedirected.current = true;
+          setLoading(false);
+          router.replace("/login");
+        }
       } else if (session?.user) {
         const profile = await fetchProfile(session.user.id, session.user.email ?? "");
         setUser(profile);
@@ -196,7 +201,6 @@ export default function DashboardLayout({
     };
   }, [router]);
 
-  // Show a spinner while the session is being determined or while the redirect is in flight.
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -217,13 +221,11 @@ export default function DashboardLayout({
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/40"
             onClick={() => setSidebarOpen(false)}
             aria-hidden="true"
           />
-          {/* Drawer */}
           <div className="relative z-50 w-64 h-full">
             <Sidebar navItems={navItems} onClose={() => setSidebarOpen(false)} />
           </div>
@@ -234,7 +236,6 @@ export default function DashboardLayout({
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top header */}
         <header className="h-16 flex items-center justify-between px-4 lg:px-6 border-b border-border bg-white dark:bg-gray-900 flex-shrink-0">
-          {/* Mobile hamburger */}
           <button
             className="lg:hidden p-2 rounded-lg hover:bg-accent"
             onClick={() => setSidebarOpen(true)}
@@ -243,10 +244,8 @@ export default function DashboardLayout({
             <Menu className="h-5 w-5" />
           </button>
 
-          {/* Desktop spacer */}
           <div className="hidden lg:block" />
 
-          {/* User menu */}
           <UserMenu />
         </header>
 
