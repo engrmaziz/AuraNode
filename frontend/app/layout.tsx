@@ -1,7 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Script from "next/script";
 
@@ -33,8 +33,24 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Fetch the initial session server-side for hydration
-  const supabase = createServerComponentClient({ cookies });
+  // Refresh the Supabase session server-side so the auth cookie is up-to-date
+  // before any Server Components on this page try to read it.
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll() {
+          // No-op: cookies cannot be set from a Server Component.
+          // Session cookie refresh is handled by middleware.ts.
+        },
+      },
+    }
+  );
   await supabase.auth.getSession();
 
   const plausibleDomain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN;
