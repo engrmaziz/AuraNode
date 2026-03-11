@@ -2,6 +2,9 @@
 
 > **Premium Farm-to-Table E-Commerce** — A highly automated, enterprise-grade platform featuring AI-powered upselling, automated abandoned-cart revenue recovery, hands-free post-purchase drip campaigns, and cryptographic coupon enforcement.
 
+[![Deploy Frontend](https://img.shields.io/badge/Frontend-Deployed%20on%20Vercel-black?logo=vercel&logoColor=white)](https://vercel.com)
+[![Deploy Backend to Railway](https://github.com/engrmaziz/AuraNode/actions/workflows/backend-deploy.yml/badge.svg)](https://github.com/engrmaziz/AuraNode/actions/workflows/backend-deploy.yml)
+
 ---
 
 ## Table of Contents
@@ -261,7 +264,7 @@ organic-harvest/
 
 ```bash
 git clone https://github.com/engrmaziz/AuraNode.git
-cd organic-harvest
+cd AuraNode
 ```
 
 ### 2. Install dependencies

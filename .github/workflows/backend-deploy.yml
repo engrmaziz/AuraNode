@@ -1,4 +1,4 @@
-name: Deploy Backend to Render
+name: Deploy Backend to Railway
 on:
   push:
     branches: [main]
@@ -7,6 +7,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Render Deploy
+      - name: Trigger Railway Deploy
         run: |
-          curl --fail -X POST ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          curl --fail -X POST ${{ secrets.RAILWAY_DEPLOY_HOOK_URL }}
