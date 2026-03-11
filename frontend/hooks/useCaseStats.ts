@@ -1,5 +1,4 @@
 "use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { get } from "@/lib/api-client";
@@ -12,7 +11,7 @@ export interface UseCaseStatsReturn {
   refetch: () => void;
 }
 
-const AUTO_REFRESH_MS = 60_000; // 60 seconds
+const AUTO_REFRESH_MS = 60_000;
 
 const EMPTY_STATS: CaseStats = {
   total: 0,
@@ -23,7 +22,7 @@ const EMPTY_STATS: CaseStats = {
   average_processing_time_hours: 0,
 };
 
-export function useCaseStats(): UseCaseStatsReturn {
+export function useCaseStats(ready = true): UseCaseStatsReturn {
   const [stats, setStats] = useState<CaseStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +32,9 @@ export function useCaseStats(): UseCaseStatsReturn {
   const refetch = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
+    // Don't fetch until auth is confirmed
+    if (!ready) return;
+
     let cancelled = false;
 
     const fetchStats = async () => {
@@ -43,7 +45,6 @@ export function useCaseStats(): UseCaseStatsReturn {
         if (!cancelled) setStats(data);
       } catch (err: unknown) {
         if (!cancelled) {
-          // On 401 show empty/zero stats silently — never trigger a logout
           if (axios.isAxiosError(err) && err.response?.status === 401) {
             console.warn("Stats endpoint returned 401 — showing empty stats.");
             setStats(EMPTY_STATS);
@@ -57,15 +58,13 @@ export function useCaseStats(): UseCaseStatsReturn {
     };
 
     fetchStats();
-
-    // Auto-refresh every 60 seconds
     intervalRef.current = setInterval(fetchStats, AUTO_REFRESH_MS);
 
     return () => {
       cancelled = true;
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [tick]);
+  }, [tick, ready]);
 
   return { stats, loading, error, refetch };
 }
